@@ -9,6 +9,10 @@ SENTINEL-ID is a secure, explainable identity-document screening console for aut
 - **Opaque AI decisions** — presents a confidence score, verdict, evidence trail, and signal-by-signal explanation instead of an unexplained pass/fail result.
 - **Counterfeit and altered passports** — supports passport image/PDF intake and creates a structured screening record for document-forensics workflows.
 - **Aadhaar verification bottlenecks** — provides a scalable place to add Aadhaar-specific OCR, QR, layout, and authenticity checks without changing the officer workflow.
+- **Driving-licence fraud** — supports licence-number, expiry-date, portrait, issuer, and security-pattern checks.
+- **Voter-ID fraud** — supports EPIC-number, issuer/state, portrait, and card-layout checks.
+- **PAN-card tampering** — supports PAN-format, name/date alignment, portrait, and print-artifact checks.
+- **Residence-permit and national-ID review** — provides a configurable workflow for identity number, issuer, validity, portrait, and machine-readable-field checks.
 - **Inconsistent officer decisions** — standardizes screening states such as cleared, review, and high-risk with repeatable evidence categories.
 - **Disconnected or unreliable networks** — supports an offline-first operational model where local screening can continue and later synchronize with a central system.
 - **Sensitive document exposure** — uses authenticated officer access, secure session handling, upload validation, size limits, MIME allowlisting, file-signature checks, and security headers as a foundation for protected document processing.
@@ -23,7 +27,8 @@ SENTINEL-ID is a secure, explainable identity-document screening console for aut
 
 - Officer sign-in and account creation with email/password and Google OAuth.
 - Protected dashboard backed by Better Auth and Neon Postgres.
-- Passport/Aadhaar image and PDF upload workflow.
+- Multi-document image and PDF upload workflow with a document-type selector for passport, Aadhaar, driving licence, voter ID, PAN card, national ID, residence permit, and other government IDs.
+- Document-aware helper copy, screening metadata, and signal checklist.
 - Client-side file type, file signature, filename, and size validation.
 - Explainable demo confidence scoring and verdict presentation.
 - Responsive officer navigation with quick access to screening, queue, history, analytics, and settings surfaces.
