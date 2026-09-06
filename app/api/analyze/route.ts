@@ -65,8 +65,17 @@ function classifyDocumentEvidence(documentType: string, text: string, filename: 
     other: /.+/,
   }
   const expectedSignal = signals[documentType]?.test(normalized) ?? false
-  const otherSignal = Object.entries(signals).some(([type, pattern]) => type !== documentType && type !== 'other' && pattern.test(normalized))
-  const passportMrz = /P<[A-Z]{3}[A-Z0-9<]{25,}/.test(normalized) || /[A-Z0-9<]{20,}/.test(normalized)
+  const strongSignals: Record<string, RegExp> = {
+    passport: /\b(PASSPORT|MRZ|P<[A-Z]{3})\b/,
+    aadhaar: /AADHAAR|UIDAI|UNIQUE IDENTIFICATION|GOVERNMENT OF INDIA|आधार/i,
+    'pan-card': /PAN CARD|INCOME TAX/i,
+    'driving-license': /DRIVING|DRIVER|LICEN[CS]E|RTO|MOTOR VEHICLE/i,
+    'voter-id': /VOTER|ELECTION|EPIC|ELECTION COMMISSION/i,
+    'national-id': /NATIONAL ID|IDENTITY CARD|IDENTIFICATION CARD/i,
+    'residence-permit': /RESIDENCE|RESIDENT|PERMIT|IMMIGRATION/i,
+  }
+  const otherSignal = Object.entries(strongSignals).some(([type, pattern]) => type !== documentType && pattern.test(normalized))
+  const passportMrz = /P<[A-Z]{3}[A-Z0-9<]{25,}/.test(normalized)
   const identifierSignals = {
     passport: passportMrz && /(PASSPORT|P<)/.test(normalized),
     aadhaar: /(AADHAAR|UIDAI|UNIQUE IDENTIFICATION|आधार)/i.test(normalized) && /(?:\d[ -]?){12}/.test(normalized),
@@ -237,7 +246,8 @@ async function analyzePost(request: Request) {
   try { qrVerification = await decodeQrFromImage(file, localOcr, documentType) } catch { qrVerification = { detected: false, status: 'unverified' as const, findings: ['QR scan could not be completed safely. Manual verification is required.'], fields: [] } }
   const qrConflict = qrVerification.status === 'conflict'
   const requiresSpecificEvidence = documentType !== 'other'
-  if (filenameType || evidence.nonDocumentMarkers || qrConflict || (evidence.otherSignal && !evidence.expectedSignal) || (requiresSpecificEvidence && !evidence.hasTypeSpecificEvidence)) {
+  const hasDocumentEvidence = evidence.expectedSignal || localOcr.length >= 24 || qrVerification.detected
+  if (filenameType || evidence.nonDocumentMarkers || qrConflict || (evidence.otherSignal && !evidence.expectedSignal) || (requiresSpecificEvidence && !hasDocumentEvidence)) {
     const expectedLabel = documentType.replace(/-/g, ' ')
     const detectedLabel = filenameType ? filenameType.replace(/-/g, ' ') : evidence.nonDocumentMarkers ? 'non-document image or institutional artwork' : qrConflict ? 'QR payload conflict' : 'another document type'
     return NextResponse.json({ verdict: 'MANUAL_REVIEW' as const, confidence: 0, summary: `Selected document type does not match the uploaded evidence. Selected: ${expectedLabel}; detected: ${detectedLabel}. Select the correct type and upload the document again.`, ocrFields: [{ field: 'Document type match', value: 'Mismatch detected before authenticity scoring', status: 'inconsistent' as const }, ...qrVerification.fields], aiFindings: ['Analysis was stopped because deterministic evidence conflicts with the selected document type.', ...qrVerification.findings], failedChecks: ['Document type mismatch requires correction before authenticity analysis.', ...(qrConflict ? ['Decoded QR details conflict with visible document evidence.'] : [])], rulesApplied: rules[documentType] || rules.other, provider: 'deterministic preflight', model: 'document-type-gate-v3', documentHash: `${documentHash.slice(0, 12)}…` }, { status: 200 })

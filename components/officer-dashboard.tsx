@@ -44,6 +44,23 @@ export function OfficerDashboard({ user }: { user: User }) {
   const [uploadSource, setUploadSource] = useState<'device' | 'drive'>('device')
   const [driveFiles, setDriveFiles] = useState<Array<{ id: string; name: string; mimeType: string; size?: string }>>([])
   const [driveLoading, setDriveLoading] = useState(false)
+  const [liveMetrics, setLiveMetrics] = useState({ analysesToday: 0, medianLatency: 0, nodeHealth: 'Operational' })
+  const analysisLatencies = useRef<number[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    async function refreshMetrics() {
+      try {
+        const response = await fetch('/api/cases', { cache: 'no-store' })
+        if (!response.ok) throw new Error('metrics unavailable')
+        const rows = await response.json() as Array<{ createdAt: string }>
+        if (!cancelled) setLiveMetrics((current) => ({ ...current, analysesToday: rows.filter((row) => new Date(row.createdAt).toDateString() === new Date().toDateString()).length }))
+      } catch { if (!cancelled) setLiveMetrics((current) => ({ ...current, nodeHealth: 'Degraded' })) }
+    }
+    void refreshMetrics()
+    const interval = window.setInterval(refreshMetrics, 10_000)
+    return () => { cancelled = true; window.clearInterval(interval) }
+  }, [])
 
   useEffect(() => {
     const savedTheme = document.cookie.match(/(?:^|; )sentinel-theme=(light|dark)/)?.[1]
@@ -82,6 +99,7 @@ export function OfficerDashboard({ user }: { user: User }) {
     const filenameSuggestsAnotherType = Object.entries(filenameHints).some(([type, hints]) => type !== documentType && hints.some((hint) => name.includes(hint)))
     if (filenameSuggestsAnotherType) { setNotice(`The filename appears to describe a different document type than ${documentProfiles[documentType].label}. Select the matching type before analysis.`); return }
     setAnalyzing(true); setResult(null); setNotice('')
+    const startedAt = performance.now()
     let timeout: number | undefined
     try {
       const body = new FormData()
@@ -106,6 +124,11 @@ export function OfficerDashboard({ user }: { user: User }) {
       }
     } finally {
       if (timeout !== undefined) window.clearTimeout(timeout)
+      const latency = performance.now() - startedAt
+      analysisLatencies.current = [...analysisLatencies.current.slice(-8), latency].sort((a, b) => a - b)
+      const values = analysisLatencies.current
+      const median = values.length ? values[Math.floor(values.length / 2)] / 1000 : 0
+      setLiveMetrics((current) => ({ ...current, medianLatency: median }))
       setAnalyzing(false)
     }
   }
@@ -156,7 +179,7 @@ export function OfficerDashboard({ user }: { user: User }) {
           <section className="hero-row"><div><p className="eyebrow">DOCUMENT INTELLIGENCE</p><h2>Verify the document.<br /><em>Trust the evidence.</em></h2><p className="hero-copy">Upload a government document image, screenshot, or PDF. The node validates the file locally, then OCR and AI analysis produce a conservative evidence score.</p></div><div className="hero-mark">S<span>01</span></div></section>
           <section className="upload-card"><div className="upload-heading"><div><span className="eyebrow">01 / CAPTURE INPUT</span><h3>Start a document screening</h3></div><span className="format-note">JPG · PNG · WEBP · PDF <b>≤ 10 MB</b></span></div><div className="document-selector"><label htmlFor="document-type">DOCUMENT TYPE<select id="document-type" value={documentType} onChange={(event) => { setDocumentType(event.target.value as DocumentType); setFile(null); setResult(null); setNotice('') }}>{Object.entries(documentProfiles).map(([value, profile]) => <option key={value} value={value}>{profile.label}</option>)}</select></label><p>{documentProfiles[documentType].helper}</p></div><div className="upload-source-tabs" role="tablist" aria-label="Upload source"><button type="button" className={uploadSource === 'device' ? 'active' : ''} onClick={() => setUploadSource('device')}>Upload from this device</button><button type="button" className={uploadSource === 'drive' ? 'active' : ''} onClick={() => { setUploadSource('drive'); setNotice('Google Drive is connected. Choose a Drive file to import.'); }}>Upload from Google Drive</button></div>{uploadSource === 'device' ? <label className="dropzone"><input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => selectFile(event.target.files?.[0] || null)} /><UploadCloud size={28} /><strong>{file ? file.name : 'Drop a file here or browse'}</strong><span>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB · ready for analysis` : `${documentProfiles[documentType].label} · image, screenshot, or PDF`}</span></label> : <div className="drive-picker-wrap"><button type="button" className="dropzone drive-picker" onClick={() => void openDrivePicker()} disabled={driveLoading}><UploadCloud size={28} /><strong>{driveLoading ? 'Loading Google Drive…' : 'Choose from Google Drive'}</strong><span>Private per-officer Drive access · no document retention</span></button>{driveFiles.length > 0 && <div className="drive-file-list" aria-label="Google Drive files">{driveFiles.map((driveFile) => <button type="button" key={driveFile.id} onClick={() => void selectDriveFile(driveFile.id, driveFile.name, driveFile.mimeType)}><strong>{driveFile.name}</strong><span>{driveFile.mimeType} {driveFile.size ? `· ${Math.round(Number(driveFile.size) / 1024)} KB` : ''}</span></button>)}</div>}</div>}<div className="upload-actions"><span className="privacy-note" title="The node is the controlled runtime that validates and analyzes files. In a genuinely air-gapped deployment, egress is blocked; this preview uses the configured AI Gateway for multimodal OCR, so do not describe it as fully air-gapped until the model is self-hosted locally."><LockKeyhole size={14} /> Local validation · AI Gateway analysis</span><button className="primary-button" onClick={analyze} disabled={!file || analyzing}>{analyzing ? 'Analyzing document…' : 'Run analysis'} <ArrowRight size={16} /></button></div>{notice && <p className="form-error">{notice}</p>}</section>
           {result && <section aria-live="polite" className={`result-card ${result.verdict === 'GENUINE' ? 'clear' : 'refer'}`}><div className="result-score"><strong>{result.confidence}</strong><span>% confidence</span><small>{result.provider === 'instant preflight fallback' ? 'Instant quality score — manual review' : result.confidence === 0 ? 'Unavailable — manual review' : result.verdict === 'GENUINE' ? 'Evidence-supported, not proof of authenticity' : 'Conservative evidence score'}</small></div><div><span className="eyebrow">02 / OCR + AI RESULT �� {result.profile.shortLabel}</span><h3>{result.verdict === 'GENUINE' ? 'LIKELY GENUINE' : result.verdict === 'LIKELY_FAKE' ? 'LIKELY FAKE' : 'MANUAL REVIEW REQUIRED'}</h3><p>{result.summary}</p><div className="result-evidence"><b>Risk assessment</b><span><strong>{result.riskLevel || 'REVIEW'}</strong> · {result.riskScore ?? '—'}/100 risk score</span>{result.riskReasons?.map((reason) => <span className="evidence-fail" key={reason}>{reason}</span>)}<b>OCR extraction</b>{result.ocrFields.length ? result.ocrFields.map((field) => <span key={field.field}><strong>{field.field}</strong> {field.value} <i>{field.status}</i></span>) : <span>No reliable OCR fields extracted.</span>}<b>AI findings</b>{result.aiFindings.map((finding) => <span key={finding}>{finding}</span>)}{result.failedChecks.map((check) => <span className="evidence-fail" key={check}>{check}</span>)}</div><small className="provenance">{result.provider} · {result.model} · deterministic checks applied{result.documentHash ? ` · file ${result.documentHash}` : ''}</small>{result.provider.startsWith('local OCR fallback') && <button className="secondary-button result-retry" onClick={analyze}>Retry analysis</button>}</div><BadgeCheck size={28} /></section>}
-          <div className="stat-row"><div><span>ANALYSES TODAY</span><strong>184</strong><small>↑ 12.4% vs yesterday</small></div><div><span>MEDIAN LATENCY</span><strong>2.8s</strong><small>Target ≤ 4 seconds</small></div><div><span>MODEL BUNDLE</span><strong>v0.8.4</strong><small>SHA 9a7f…d21c</small></div><div><span>NODE HEALTH</span><strong>99.98%</strong><small>All modules operational</small></div></div>
+          <div className="stat-row"><div><span>ANALYSES TODAY</span><strong>{liveMetrics.analysesToday}</strong><small>Live case count · refreshes every 10s</small></div><div><span>MEDIAN LATENCY</span><strong>{liveMetrics.medianLatency ? `${liveMetrics.medianLatency.toFixed(1)}s` : '—'}</strong><small>Measured this session · target ≤ 4 seconds</small></div><div><span>MODEL BUNDLE</span><strong>v0.8.4</strong><small>SHA 9a7f…d21c</small></div><div><span>NODE HEALTH</span><strong>{liveMetrics.nodeHealth === 'Operational' ? '99.98%' : 'DEGRADED'}</strong><small>{liveMetrics.nodeHealth === 'Operational' ? 'API heartbeat operational' : 'API heartbeat unavailable'}</small></div></div>
         </>}
         {activeView !== 'new' && <section className="workspace-card">{renderWorkspace()}<button className="primary-button" onClick={() => navigate('new')}>Start new screening <ArrowRight size={16} /></button>{notice && <p className="form-success">{notice}</p>}</section>}
       </div>
