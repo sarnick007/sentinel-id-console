@@ -14,6 +14,7 @@ const baseURL = toOrigin(process.env.BETTER_AUTH_URL)
   ?? 'http://localhost:3000'
 
 const isDevelopment = process.env.NODE_ENV === 'development'
+
 const trustedOriginCandidates = [
   baseURL,
   ...(isDevelopment ? [
