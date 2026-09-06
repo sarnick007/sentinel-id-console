@@ -30,10 +30,14 @@ export function AuthForm() {
     setPending(true)
     setError('')
     try {
-      const result = await authClient.signIn.social({ provider: 'google', callbackURL: '/' })
-      if (result.error) setError('Google sign-in could not start. Please try email and password or try again.')
-    } catch {
-      setError('Google sign-in is temporarily unavailable. Please try again.')
+      const result = await authClient.signIn.social({ provider: 'google', callbackURL: `${window.location.origin}/` })
+      if (result.error) {
+        console.error('[auth] Google OAuth start failed', result.error)
+        setError('Google sign-in is not configured for this deployment. Please contact the administrator.')
+      }
+    } catch (error) {
+      console.error('[auth] Google OAuth request failed', error)
+      setError('Google sign-in could not start. Check your connection and try again.')
     } finally {
       setPending(false)
     }
