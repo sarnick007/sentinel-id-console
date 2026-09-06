@@ -7,10 +7,12 @@ const toOrigin = (value?: string) => {
   return normalized.replace(/\/$/, '')
 }
 
+const deploymentURL = toOrigin(process.env.VERCEL_URL)
+const productionURL = toOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL)
 const baseURL = toOrigin(process.env.BETTER_AUTH_URL)
-  ?? toOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL)
-  ?? toOrigin(process.env.VERCEL_URL)
+  ?? (process.env.VERCEL_ENV === 'production' ? productionURL : deploymentURL)
   ?? toOrigin(process.env.V0_RUNTIME_URL)
+  ?? productionURL
   ?? 'http://localhost:3000'
 
 const isDevelopment = process.env.NODE_ENV === 'development'
