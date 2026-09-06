@@ -70,7 +70,7 @@ function localFallback(documentType: string, ocrText: string, failed: string[], 
     hasDate && { field: 'Date evidence', value: 'DOB/YOB/date pattern detected', status: 'present' as const },
     hasGender && { field: 'Gender', value: 'Gender label detected', status: 'present' as const },
     hasQrSignal && { field: 'Security signal', value: 'QR/VID-related text detected', status: 'present' as const },
-    ocrText && { field: 'OCR text', value: ocrText.slice(0, 180), status: 'present' as const },
+    ocrText && { field: 'OCR evidence', value: `${ocrText.length} characters extracted`, status: 'present' as const },
   ].filter(Boolean) as Array<{ field: string; value: string; status: 'present' }>
   const evidencePoints = (hasIssuer ? 22 : 0) + (aadhaarNumber ? 20 : 0) + (hasDate ? 8 : 0) + (hasGender ? 6 : 0) + (hasQrSignal ? 10 : 0) + (ocrText.length > 80 ? 8 : 0)
   const confidence = Math.min(74, Math.max(18, evidencePoints))
@@ -100,12 +100,19 @@ async function analyzePost(request: Request) {
   const form = await request.formData()
   const file = form.get('file')
   const documentType = String(form.get('documentType') || 'other')
+  const supportedTypes = new Set(['aadhaar', 'passport', 'pan-card', 'driving-license', 'voter-id', 'national-id', 'residence-permit', 'other'])
+  if (!supportedTypes.has(documentType)) return NextResponse.json({ error: 'Unsupported document type.' }, { status: 400 })
   if (!(file instanceof File) || file.size === 0 || file.size > maxBytes) return NextResponse.json({ error: 'Invalid file' }, { status: 400 })
   const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
   if (!allowed.has(file.type)) return NextResponse.json({ error: 'Unsupported file type' }, { status: 415 })
 
   const bytes = Buffer.from(await file.arrayBuffer())
   if (bytes.length === 0) return NextResponse.json({ error: 'The uploaded file is empty.' }, { status: 400 })
+  const isPdf = bytes.subarray(0, 5).toString('ascii') === '%PDF-'
+  const isJpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+  const isPng = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  const isWebp = bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP'
+  if (!((file.type === 'application/pdf' && isPdf) || (file.type === 'image/jpeg' && isJpeg) || (file.type === 'image/png' && isPng) || (file.type === 'image/webp' && isWebp))) return NextResponse.json({ error: 'File content does not match its declared type.' }, { status: 415 })
   const documentHash = createHash('sha256').update(bytes).digest('hex')
   let localOcr = ''
   try { localOcr = await Promise.race([runLocalOcr(file), new Promise<string>((resolve) => setTimeout(() => resolve(''), 25_000))]) } catch { localOcr = '' }

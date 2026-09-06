@@ -13,12 +13,16 @@ const baseURL = toOrigin(process.env.BETTER_AUTH_URL)
   ?? toOrigin(process.env.V0_RUNTIME_URL)
   ?? 'http://localhost:3000'
 
+const isDevelopment = process.env.NODE_ENV === 'development'
 const trustedOriginCandidates = [
-  'http://localhost:3000',
-  toOrigin(process.env.V0_RUNTIME_URL),
-  toOrigin(process.env.V0_DEV_APP_URL),
-  toOrigin(process.env.V0_BUILD_URL),
-  toOrigin(process.env.V0_SANDBOX_URL),
+  baseURL,
+  ...(isDevelopment ? [
+    'http://localhost:3000',
+    toOrigin(process.env.V0_RUNTIME_URL),
+    toOrigin(process.env.V0_DEV_APP_URL),
+    toOrigin(process.env.V0_BUILD_URL),
+    toOrigin(process.env.V0_SANDBOX_URL),
+  ] : []),
   toOrigin(process.env.VERCEL_URL),
   toOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL),
 ]
@@ -46,7 +50,7 @@ export const auth = betterAuth({
   session: { modelName: 'session' },
   account: { modelName: 'account' },
   verification: { modelName: 'verification' },
-  ...(process.env.NODE_ENV === 'development'
+  ...(isDevelopment
     ? {
         advanced: {
           defaultCookieAttributes: {
