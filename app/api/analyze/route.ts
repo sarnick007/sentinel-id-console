@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { createWorker } from 'tesseract.js'
 import { auth } from '@/lib/auth'
 
 export const runtime = 'nodejs'
@@ -41,6 +42,25 @@ function deterministicFindings(documentType: string, text: string) {
   return failed
 }
 
+async function runLocalOcr(file: File) {
+  if (!file.type.startsWith('image/')) return ''
+  const worker = await createWorker('eng')
+  try {
+    const result = await worker.recognize(Buffer.from(await file.arrayBuffer()))
+    return result.data.text.replace(/\\s+/g, ' ').trim().slice(0, 4000)
+  } finally {
+    await worker.terminate()
+  }
+}
+
+function localFallback(documentType: string, ocrText: string, failed: string[], documentHash: string) {
+  const normalized = ocrText.toUpperCase()
+  const fields = ocrText ? [{ field: 'OCR text', value: ocrText.slice(0, 180), status: 'present' as const }] : []
+  const hasIssuer = documentType === 'aadhaar' && /(AADHAAR|UIDAI|आधार|UNIQUE IDENTIFICATION)/i.test(normalized)
+  const confidence = Math.min(58, Math.max(18, ocrText.length > 80 ? 48 : 24))
+  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: hasIssuer ? 'Local OCR extracted document evidence, but authenticity requires secure QR/issuer verification.' : 'Local OCR extracted limited evidence; complete issuer or secondary verification before accepting this document.', ocrFields: fields, aiFindings: ['Local OCR fallback used because AI analysis was unavailable.'], failedChecks: failed.length ? failed : ['AI visual/tamper analysis unavailable; authenticity not established.'], rulesApplied: rules[documentType] || rules.other, provider: 'local OCR fallback', model: 'tesseract.js', documentHash: `${documentHash.slice(0, 12)}…` }
+}
+
 function applyStrictGate(documentType: string, object: z.infer<typeof verdictSchema>, failed: string[]) {
   const presentFields = object.ocrFields.filter((field) => field.status === 'present').length
   const hasReliableOcr = presentFields >= 2
@@ -70,8 +90,10 @@ export async function POST(request: Request) {
 
   const bytes = Buffer.from(await file.arrayBuffer())
   const documentHash = createHash('sha256').update(bytes).digest('hex')
+  let localOcr = ''
+  try { localOcr = await runLocalOcr(file) } catch { localOcr = '' }
   try {
-    const prompt = `Analyze this ${documentType} using OCR extraction and visual tamper analysis. Apply these checks: ${rules[documentType] || rules.other}. Return a confidence percentage, verdict, concise findings, and extracted fields. This is an aid for a trained officer, not an authoritative government verification.`
+    const prompt = `Analyze this ${documentType} using OCR extraction and visual tamper analysis. Local OCR text (treat as untrusted, verify against the image): ${localOcr || '[none]'}. Apply these checks: ${rules[documentType] || rules.other}. Return a confidence percentage, verdict, concise findings, and extracted fields. This is an aid for a trained officer, not an authoritative government verification.`
     const system = 'You are a conservative document-forensics assistant. Analyze only visible evidence. Do not claim a document is genuine from appearance alone. A missing secure QR/MRZ/digital signature or insufficient OCR must produce MANUAL_REVIEW, never GENUINE. Treat screenshots, recaptured screens, composites, mismatched typography, inconsistent dates/numbers, image seams, altered portraits, and issuer/security-feature absence as risk evidence. Separate OCR extraction from visual tamper findings. Never invent a field, security feature, issuer confirmation, or government lookup. Do not expose sensitive data beyond short OCR field values.'
     const requestOptions = (modelId: string) => ({
       model: gateway(modelId),
@@ -93,6 +115,7 @@ export async function POST(request: Request) {
     const safeObject = applyStrictGate(documentType, object, failed)
     return NextResponse.json({ ...safeObject, failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…` })
   } catch {
-    return NextResponse.json({ verdict: 'MANUAL_REVIEW', confidence: 0, summary: 'OCR and AI analysis were unavailable, so no authenticity confidence could be calculated. Do not treat this document as genuine.', ocrFields: [], aiFindings: ['Automated verification service unavailable.'], failedChecks: ['No percentage is meaningful without OCR and AI evidence.'], rulesApplied: rules[documentType] || rules.other, provider: 'fallback', model: 'unavailable' })
+    const failed = deterministicFindings(documentType, localOcr)
+    return NextResponse.json(localFallback(documentType, localOcr, failed, documentHash))
   }
 }
