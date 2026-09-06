@@ -26,6 +26,12 @@ export const auth = betterAuth({
   baseURL,
   trustedOrigins,
   emailAndPassword: { enabled: true },
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    },
+  },
   user: { modelName: 'user' },
   session: { modelName: 'session' },
   account: { modelName: 'account' },

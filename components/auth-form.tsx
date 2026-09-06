@@ -13,6 +13,19 @@ export function AuthForm() {
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
 
+  async function continueWithGoogle() {
+    setPending(true)
+    setError('')
+    try {
+      const result = await authClient.signIn.social({ provider: 'google', callbackURL: '/' })
+      if (result.error) setError('Google sign-in could not start. Please try email and password or try again.')
+    } catch {
+      setError('Google sign-in is temporarily unavailable. Please try again.')
+    } finally {
+      setPending(false)
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setPending(true)
@@ -50,6 +63,8 @@ export function AuthForm() {
         <h2>{mode === 'sign-in' ? 'Welcome back.' : 'Create your console.'}</h2>
         <p className="muted">{mode === 'sign-in' ? 'Sign in to review identity dossiers.' : 'Provision a secure officer account.'}</p>
         {mode === 'sign-in' && <p className="auth-hint">Demo account: officer@sentinel.id</p>}
+        <button type="button" className="oauth-button" onClick={continueWithGoogle} disabled={pending}><span className="google-g">G</span> Continue with Google</button>
+        <div className="auth-divider"><span>or use email</span></div>
         <form onSubmit={submit}>
           {mode === 'sign-up' && <label>Full name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>}
           <label>Work email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
