@@ -129,8 +129,8 @@ export function OfficerDashboard({ user }: { user: User }) {
     } catch (error) { setNotice(error instanceof Error ? error.message : 'The Drive file could not be imported.') } finally { setDriveLoading(false) }
   }
   async function signOut() { await authClient.signOut(); window.location.href = '/sign-in' }
-  async function loadCases() { const response = await fetch('/api/cases', { cache: 'no-store' }); if (response.ok) setCases(await response.json()) }
-  async function loadAudit() { const response = await fetch('/api/audit', { cache: 'no-store' }); if (response.ok) setAuditEvents(await response.json()) }
+  async function loadCases() { try { const response = await fetch('/api/cases', { cache: 'no-store' }); if (!response.ok) throw new Error('Unable to load case queue.'); setCases(await response.json()) } catch (error) { setNotice(error instanceof Error ? error.message : 'Unable to load case queue.') } }
+  async function loadAudit() { try { const response = await fetch('/api/audit', { cache: 'no-store' }); if (!response.ok) throw new Error('Unable to load audit history.'); setAuditEvents(await response.json()) } catch (error) { setNotice(error instanceof Error ? error.message : 'Unable to load audit history.') } }
   async function updateCase(id: string, status: string) { const response = await fetch('/api/cases', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) }); if (response.ok) { await loadCases(); await loadAudit(); setNotice('Case status updated and audit event recorded.') } }
   function navigate(view: View) { setActiveView(view); setMobileNav(false); setNotice(''); if (view === 'new') { setFile(null); setResult(null); } if (view === 'queue') void loadCases(); if (view === 'history') void loadAudit() }
 

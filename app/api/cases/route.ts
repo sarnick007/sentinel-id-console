@@ -29,10 +29,20 @@ export async function POST(request: Request) {
     const fileName = typeof body.fileName === 'string' ? body.fileName.slice(0, 160) : 'document'
     const fileType = typeof body.fileType === 'string' ? body.fileType.slice(0, 80) : 'unknown'
     const score = Number.isInteger(body.score) ? Math.max(0, Math.min(100, body.score)) : null
-    const verdict = typeof body.verdict === 'string' ? body.verdict.slice(0, 40) : null
+    const verdict = ['GENUINE', 'LIKELY_FAKE', 'MANUAL_REVIEW'].includes(body.verdict) ? body.verdict : null
     const id = randomUUID()
-    await pool.query('insert into document_job (id, "userId", "fileName", "fileType", status, score, verdict, "createdAt", "updatedAt") values ($1, $2, $3, $4, $5, $6, $7, now(), now())', [id, userId, fileName, fileType, 'REVIEW', score, verdict])
-    await pool.query('insert into audit_event (id, "userId", "jobId", action, detail) values ($1, $2, $3, $4, $5)', [randomUUID(), userId, id, 'CASE_CREATED', `Screening case created for ${fileType}`])
+    const client = await pool.connect()
+    try {
+      await client.query('begin')
+      await client.query('insert into document_job (id, "userId", "fileName", "fileType", status, score, verdict, "createdAt", "updatedAt") values ($1, $2, $3, $4, $5, $6, $7, now(), now())', [id, userId, fileName, fileType, 'REVIEW', score, verdict])
+      await client.query('insert into audit_event (id, "userId", "jobId", action, detail) values ($1, $2, $3, $4, $5)', [randomUUID(), userId, id, 'CASE_CREATED', `Screening case created for ${fileType}`])
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
     return NextResponse.json({ id }, { status: 201 })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error && error.message === 'Unauthorized' ? 'Unauthorized' : 'Unable to create case' }, { status: error instanceof Error && error.message === 'Unauthorized' ? 401 : 500 })
