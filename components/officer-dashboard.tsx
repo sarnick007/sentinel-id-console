@@ -73,14 +73,14 @@ export function OfficerDashboard({ user }: { user: User }) {
   async function analyze() {
     if (!file) { setNotice(`Choose a ${documentProfiles[documentType].label} file first.`); return }
     setAnalyzing(true); setResult(null); setNotice('')
+    let timeout: number | undefined
     try {
       const body = new FormData()
       body.append('file', file)
       body.append('documentType', documentType)
       const controller = new AbortController()
-      const timeout = window.setTimeout(() => controller.abort(), 3_800)
+      timeout = window.setTimeout(() => controller.abort(), 3_800)
       const response = await fetch('/api/analyze', { method: 'POST', body, signal: controller.signal })
-      window.clearTimeout(timeout)
       const raw = await response.text()
       let data: Record<string, unknown>
       try { data = JSON.parse(raw) } catch { throw new Error(`Analysis service returned an invalid response (${response.status}). The server may have timed out; local evidence could not be returned.`) }
@@ -89,7 +89,10 @@ export function OfficerDashboard({ user }: { user: User }) {
       setResult({ ...data, profile: documentProfiles[documentType] } as typeof result & { profile: DocumentProfile })
     } catch (error) {
       setNotice(error instanceof DOMException && error.name === 'AbortError' ? 'Analysis exceeded the safe time limit. The document was not accepted; retry or refer it for manual inspection.' : error instanceof Error ? error.message : 'Analysis unavailable. Refer this document to secondary inspection.')
-    } finally { setAnalyzing(false) }
+    } finally {
+      if (timeout !== undefined) window.clearTimeout(timeout)
+      setAnalyzing(false)
+    }
   }
 
   async function signOut() { await authClient.signOut(); window.location.href = '/sign-in' }
