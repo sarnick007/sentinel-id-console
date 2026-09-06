@@ -29,6 +29,24 @@ const rules: Record<string, string[]> = {
   other: ['Extract visible identity fields and compare repeated values.', 'Check document layout, typography, portrait, dates, and issuer context.', 'Never mark unsupported formats genuine without authoritative verification.'],
 }
 
+function filenameMismatch(documentType: string, filename: string) {
+  const normalized = filename.toLowerCase().replace(/[^a-z0-9]+/g, ' ')
+  const markers: Record<string, string[]> = {
+    passport: ['passport', 'mrz'],
+    aadhaar: ['aadhaar', 'aadhar', 'uidai'],
+    'pan-card': ['pan card', 'pancard'],
+    'driving-license': ['driving', 'license', 'licence', ' dl '],
+    'voter-id': ['voter', 'epic'],
+    'national-id': ['national id', 'nationalid'],
+    'residence-permit': ['residence', 'permit'],
+    other: [],
+  }
+  const expected = markers[documentType] || []
+  const otherTypes = Object.entries(markers).filter(([type]) => type !== documentType && type !== 'other' && markers[type].some((marker) => normalized.includes(marker)))
+  const matchedExpected = expected.some((marker) => normalized.includes(marker))
+  return otherTypes.length > 0 && !matchedExpected ? otherTypes[0][0] : null
+}
+
 function deterministicFindings(documentType: string, text: string) {
   const normalized = text.toUpperCase()
   const failed: string[] = []
@@ -162,6 +180,12 @@ async function analyzePost(request: Request) {
   const isWebp = bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP'
   if (!((file.type === 'application/pdf' && isPdf) || (file.type === 'image/jpeg' && isJpeg) || (file.type === 'image/png' && isPng) || (file.type === 'image/webp' && isWebp))) return NextResponse.json({ error: 'File content does not match its declared type.' }, { status: 415 })
   const documentHash = createHash('sha256').update(bytes).digest('hex')
+  const filenameType = filenameMismatch(documentType, file.name)
+  if (filenameType) {
+    const expectedLabel = documentType.replace(/-/g, ' ')
+    const detectedLabel = filenameType.replace(/-/g, ' ')
+    return NextResponse.json({ verdict: 'MANUAL_REVIEW' as const, confidence: 0, summary: `Selected document type does not match the uploaded filename. Selected: ${expectedLabel}; detected filename marker: ${detectedLabel}. Select the correct type and upload the document again.`, ocrFields: [{ field: 'Document type match', value: 'Mismatch detected from filename marker', status: 'inconsistent' as const }], aiFindings: ['Analysis was stopped before scoring because the selected type and uploaded filename conflict.'], failedChecks: ['Document type mismatch requires correction before authenticity analysis.'], rulesApplied: rules[documentType] || rules.other, provider: 'deterministic preflight', model: 'document-type-gate-v1', documentHash: `${documentHash.slice(0, 12)}…` }, { status: 200 })
+  }
   const instant = instantFallback(documentType, file, bytes, documentHash)
   const budget = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('analysis budget exceeded')), 900))
   let localOcr = ''
