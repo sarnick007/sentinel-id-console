@@ -106,7 +106,7 @@ export function OfficerDashboard({ user }: { user: User }) {
       body.append('file', file)
       body.append('documentType', documentType)
       const controller = new AbortController()
-      timeout = window.setTimeout(() => controller.abort(), 20_000)
+      timeout = window.setTimeout(() => controller.abort(), 45_000)
       const response = await fetch('/api/analyze', { method: 'POST', body, signal: controller.signal })
       const raw = await response.text()
       let data: Record<string, unknown>
@@ -118,7 +118,7 @@ export function OfficerDashboard({ user }: { user: User }) {
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError' && file) {
         setResult({ confidence: 0, verdict: 'MANUAL_REVIEW', summary: 'Analysis timed out before document-specific evidence could be evaluated. This upload was not scored as a valid identity document; retry or refer it for manual inspection.', documentHash: undefined, ocrFields: [{ field: 'Upload integrity', value: `${file.type} · ${Math.round(file.size / 1024)} KB`, status: 'present' }], aiFindings: ['OCR/AI analysis did not complete within the response budget.'], failedChecks: ['Document-specific authenticity evidence was not evaluated.'], rulesApplied: [], provider: 'client timeout gate', model: 'strict-document-gate-v3', profile: documentProfiles[documentType] })
-        setNotice('Analysis timed out before document-specific evidence could be verified. No confidence score was assigned.')
+        setNotice('Analysis timed out before the document could be verified. Retry once; no authenticity confidence was assigned.')
       } else {
         setNotice(error instanceof Error ? error.message : 'Analysis unavailable. Refer this document to secondary inspection.')
       }
