@@ -46,19 +46,35 @@ async function runLocalOcr(file: File) {
   if (!file.type.startsWith('image/')) return ''
   const worker = await createWorker('eng', 1, { logger: () => undefined })
   try {
-    const result = await worker.recognize(Buffer.from(await file.arrayBuffer()))
-    return result.data.text.replace(/\s+/g, ' ').trim().slice(0, 4000)
+    const image = Buffer.from(await file.arrayBuffer())
+    const first = await worker.recognize(image)
+    const firstText = first.data.text.replace(/\s+/g, ' ').trim()
+    if (firstText.length >= 100) return firstText.slice(0, 4000)
+    const second = await worker.recognize(image)
+    return `${firstText} ${second.data.text.replace(/\s+/g, ' ').trim()}`.replace(/\s+/g, ' ').trim().slice(0, 4000)
   } finally {
     await worker.terminate()
   }
 }
 
 function localFallback(documentType: string, ocrText: string, failed: string[], documentHash: string) {
-  const normalized = ocrText.toUpperCase()
-  const fields = ocrText ? [{ field: 'OCR text', value: ocrText.slice(0, 180), status: 'present' as const }] : []
-  const hasIssuer = documentType === 'aadhaar' && /(AADHAAR|UIDAI|आधार|UNIQUE IDENTIFICATION)/i.test(normalized)
-  const confidence = Math.min(58, Math.max(18, ocrText.length > 80 ? 48 : 24))
-  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: hasIssuer ? 'Local OCR extracted document evidence, but authenticity requires secure QR/issuer verification.' : 'Local OCR extracted limited evidence; complete issuer or secondary verification before accepting this document.', ocrFields: fields, aiFindings: ['Local OCR fallback used because AI analysis was unavailable.'], failedChecks: failed.length ? failed : ['AI visual/tamper analysis unavailable; authenticity not established.'], rulesApplied: rules[documentType] || rules.other, provider: 'local OCR fallback', model: 'tesseract.js', documentHash: `${documentHash.slice(0, 12)}…` }
+  const normalized = ocrText.toUpperCase().replace(/[|]/g, 'I')
+  const hasIssuer = documentType === 'aadhaar' && /(AADHAAR|UIDAI|आधार|UNIQUE IDENTIFICATION|GOVERNMENT OF INDIA)/i.test(normalized)
+  const aadhaarNumber = /(?:\d[ -]?){12}/.test(normalized)
+  const hasDate = /\b(?:DOB|YOB|DATE OF BIRTH|YEAR OF BIRTH|\d{2}[/-]\d{2}[/-]\d{4})\b/i.test(normalized)
+  const hasGender = /\b(MALE|FEMALE|TRANSGENDER|पुरुष|महिला)\b/i.test(normalized)
+  const hasQrSignal = /QR|VID|VIRTUAL ID|MERA AADHAAR/i.test(normalized)
+  const fields = [
+    hasIssuer && { field: 'Issuer', value: 'Aadhaar/UIDAI evidence detected', status: 'present' as const },
+    aadhaarNumber && { field: 'Identity number', value: '12-digit Aadhaar-like number detected', status: 'present' as const },
+    hasDate && { field: 'Date evidence', value: 'DOB/YOB/date pattern detected', status: 'present' as const },
+    hasGender && { field: 'Gender', value: 'Gender label detected', status: 'present' as const },
+    hasQrSignal && { field: 'Security signal', value: 'QR/VID-related text detected', status: 'present' as const },
+    ocrText && { field: 'OCR text', value: ocrText.slice(0, 180), status: 'present' as const },
+  ].filter(Boolean) as Array<{ field: string; value: string; status: 'present' }>
+  const evidencePoints = (hasIssuer ? 22 : 0) + (aadhaarNumber ? 20 : 0) + (hasDate ? 8 : 0) + (hasGender ? 6 : 0) + (hasQrSignal ? 10 : 0) + (ocrText.length > 80 ? 8 : 0)
+  const confidence = Math.min(74, Math.max(18, evidencePoints))
+  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: hasIssuer ? 'Local OCR found multiple Aadhaar evidence signals. Authenticity still requires secure QR/issuer verification.' : 'Local OCR extracted limited evidence; complete issuer or secondary verification before accepting this document.', ocrFields: fields, aiFindings: ['Local OCR fallback used because AI analysis was unavailable.'], failedChecks: failed.length ? failed : ['AI visual/tamper analysis unavailable; authenticity not established.'], rulesApplied: rules[documentType] || rules.other, provider: 'local OCR fallback', model: 'tesseract.js', documentHash: `${documentHash.slice(0, 12)}…` }
 }
 
 function applyStrictGate(documentType: string, object: z.infer<typeof verdictSchema>, failed: string[]) {
@@ -112,7 +128,8 @@ async function analyzePost(request: Request) {
       modelUsed = 'google/gemini-2.5-flash-lite';
       ({ object } = await generateObject(requestOptions(modelUsed)))
     }
-    const failed = deterministicFindings(documentType, object.ocrFields.map((field) => `${field.field}: ${field.value}`).join(' '))
+    const modelEvidence = object.ocrFields.map((field) => `${field.field}: ${field.value}`).join(' ')
+    const failed = deterministicFindings(documentType, `${localOcr} ${modelEvidence}`)
     const safeObject = applyStrictGate(documentType, object, failed)
     return NextResponse.json({ ...safeObject, failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…` })
   } catch (error) {
