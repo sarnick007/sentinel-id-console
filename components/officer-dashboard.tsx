@@ -1,7 +1,7 @@
 'use client'
 
-import { useRef, useState } from 'react'
-import { Activity, ArrowRight, BadgeCheck, BarChart3, ClipboardList, FileCheck2, FileUp, History, LockKeyhole, LogOut, Menu, ScanLine, Settings, ShieldCheck, UploadCloud, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Activity, ArrowRight, BadgeCheck, BarChart3, ClipboardList, FileCheck2, History, LockKeyhole, LogOut, Menu, Moon, ScanLine, Settings, ShieldCheck, Sun, UploadCloud, X } from 'lucide-react'
 import { authClient } from '@/lib/auth-client'
 
 type User = { name?: string | null; email: string }
@@ -23,6 +23,21 @@ export function OfficerDashboard({ user }: { user: User }) {
   const [activeView, setActiveView] = useState<View>('new')
   const [mobileNav, setMobileNav] = useState(false)
   const [notice, setNotice] = useState('')
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+
+  useEffect(() => {
+    const savedTheme = document.cookie.match(/(?:^|; )sentinel-theme=(light|dark)/)?.[1]
+    const nextTheme = savedTheme === 'light' ? 'light' : 'dark'
+    setTheme(nextTheme)
+    document.documentElement.dataset.theme = nextTheme
+  }, [])
+
+  function toggleTheme() {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(nextTheme)
+    document.documentElement.dataset.theme = nextTheme
+    document.cookie = `sentinel-theme=${nextTheme}; Max-Age=31536000; Path=/; SameSite=Lax`
+  }
 
   async function selectFile(nextFile: File | null) {
     if (!nextFile) return
@@ -62,7 +77,7 @@ export function OfficerDashboard({ user }: { user: User }) {
     </aside>
     {mobileNav && <button className="nav-backdrop" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
     <section className="console-main">
-      <header className="console-header"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileNav(true)}><Menu size={20} /></button><div><span className="eyebrow">CHECKPOINT / {activeView.toUpperCase()}</span><h1>Good afternoon, {user.name?.split(' ')[0] || 'Officer'}.</h1></div><div className="header-user"><div className="avatar">{(user.name || 'O').slice(0, 2).toUpperCase()}</div><span>{user.email}</span></div></header>
+      <header className="console-header"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileNav(true)}><Menu size={20} /></button><div><span className="eyebrow">CHECKPOINT / {activeView.toUpperCase()}</span><h1>Good afternoon, {user.name?.split(' ')[0] || 'Officer'}.</h1></div><div className="header-actions"><button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}<span>{theme === 'dark' ? 'Light' : 'Dark'}</span></button><div className="header-user"><div className="avatar">{(user.name || 'O').slice(0, 2).toUpperCase()}</div><span>{user.email}</span></div></div></header>
       <div className="console-content">
         {activeView === 'new' && <>
           <section className="hero-row"><div><p className="eyebrow">DOCUMENT INTELLIGENCE</p><h2>Verify the document.<br /><em>Trust the evidence.</em></h2><p className="hero-copy">Upload a passport or Aadhaar image, screenshot, or PDF. SENTINEL-ID returns an explainable confidence score without sending sensitive documents outside the node.</p></div><div className="hero-mark">S<span>01</span></div></section>
@@ -70,7 +85,7 @@ export function OfficerDashboard({ user }: { user: User }) {
           {result && <section className={`result-card ${result.score > 92 ? 'clear' : 'refer'}`}><div className="result-score"><strong>{result.score}</strong><span>/ 100</span></div><div><span className="eyebrow">02 / CONFIDENCE RESULT</span><h3>{result.verdict}</h3><p>Score assembled from MRZ integrity, visual consistency, portrait match, font forensics, and tamper signals.</p></div><BadgeCheck size={28} /></section>}
           <div className="stat-row"><div><span>ANALYSES TODAY</span><strong>184</strong><small>↑ 12.4% vs yesterday</small></div><div><span>MEDIAN LATENCY</span><strong>2.8s</strong><small>Target ≤ 4 seconds</small></div><div><span>MODEL BUNDLE</span><strong>v0.8.4</strong><small>SHA 9a7f…d21c</small></div><div><span>NODE HEALTH</span><strong>99.98%</strong><small>All modules operational</small></div></div>
         </>}
-        {activeView !== 'new' && <section className="workspace-card"><span className="eyebrow">{activeView.toUpperCase()} / OFFICER WORKSPACE</span><h2>{activeView === 'queue' ? 'Case queue.' : activeView === 'history' ? 'Audit history.' : activeView === 'analytics' ? 'Operational analytics.' : 'System settings.'}</h2><p>This workspace is ready for the next SENTINEL-ID module. The navigation is wired so queue management, audit exports, analytics, and node controls can scale without changing the officer workflow.</p><div className="workspace-list"><div><FileCheck2 size={18} /><span>Offline-first processing node</span><b>ONLINE</b></div><div><Activity size={18} /><span>Inference pipeline</span><b>READY</b></div><div><LockKeyhole size={18} /><span>Evidence retention</span><b>30 DAYS</b></div></div><button className="primary-button" onClick={() => navigate('new')}>Start new screening <ArrowRight size={16} /></button></section>}
+        {activeView !== 'new' && <section className="workspace-card"><span className="eyebrow">{activeView.toUpperCase()} / OFFICER WORKSPACE</span><h2>{activeView === 'queue' ? 'Case queue.' : activeView === 'history' ? 'Audit history.' : activeView === 'analytics' ? 'Operational analytics.' : 'System settings.'}</h2><p>This workspace is ready for the next SENTINEL-ID module. The navigation is wired so queue management, audit exports, analytics, and node controls can scale without changing the officer workflow.</p><div className="workspace-list"><div><FileCheck2 size={18} /><span>Offline-first processing node</span><b>ONLINE</b></div><div><Activity size={18} /><span>Inference pipeline</span><b>READY</b></div><div><LockKeyhole size={18} /><span>Evidence retention</span><b>30 DAYS</b></div></div><button className="primary-button" onClick={() => navigate('new')}>Start new screening <ArrowRight size={16} /></button><button className="secondary-button" onClick={() => setNotice('Workspace controls are ready for the next module release.')}>View module status</button></section>}
       </div>
       <footer className="console-footer"><span><span className="pulse" /> SYSTEM NOMINAL</span><span>RETENTION POLICY <b>30 DAYS</b></span><span>SENTINEL-ID / SIH 2026</span></footer>
     </section>

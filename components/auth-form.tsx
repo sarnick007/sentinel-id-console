@@ -1,6 +1,7 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
+import { Moon, Sun } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
 
@@ -12,6 +13,21 @@ export function AuthForm() {
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+
+  useEffect(() => {
+    const savedTheme = document.cookie.match(/(?:^|; )sentinel-theme=(light|dark)/)?.[1]
+    const nextTheme = savedTheme === 'light' ? 'light' : 'dark'
+    setTheme(nextTheme)
+    document.documentElement.dataset.theme = nextTheme
+  }, [])
+
+  function toggleTheme() {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(nextTheme)
+    document.documentElement.dataset.theme = nextTheme
+    document.cookie = `sentinel-theme=${nextTheme}; Max-Age=31536000; Path=/; SameSite=Lax`
+  }
 
   async function continueWithGoogle() {
     setPending(true)
@@ -59,6 +75,7 @@ export function AuthForm() {
         <div className="auth-proof"><span className="status-dot" /> Air-gapped analysis node ready</div>
       </section>
       <section className="auth-card">
+        <button className="auth-theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />} {theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
         <p className="eyebrow">OFFICER ACCESS</p>
         <h2>{mode === 'sign-in' ? 'Welcome back.' : 'Create your console.'}</h2>
         <p className="muted">{mode === 'sign-in' ? 'Sign in to review identity dossiers.' : 'Provision a secure officer account.'}</p>
