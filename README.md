@@ -30,7 +30,8 @@ SENTINEL-ID is a secure, explainable identity-document screening console for aut
 - Multi-document image and PDF upload workflow with a document-type selector for passport, Aadhaar, driving licence, voter ID, PAN card, national ID, residence permit, and other government IDs.
 - Document-aware helper copy, screening metadata, and signal checklist.
 - Client-side file type, file signature, filename, and size validation.
-- Explainable demo confidence scoring and verdict presentation.
+- OCR + AI-assisted confidence scoring and verdict presentation with conservative manual-review gating.
+- Explicit percentage semantics: 0% means no usable automated evidence, not a claim that the document is fake.
 - Responsive officer navigation with quick access to screening, queue, history, analytics, and settings surfaces.
 - Dark/light appearance modes with persistent preference.
 - Security headers, origin checks, request-size protection, authentication rate limiting, and secure preview cookie configuration.
@@ -61,6 +62,12 @@ Required server variables include:
 - `GOOGLE_CLIENT_SECRET`
 
 Never commit credentials, document samples containing personal data, or generated secrets. Configure OAuth callback URLs and deployment secrets in the environment where the application runs.
+
+## Processing node and air-gapped mode
+
+A **node** is the controlled runtime where document files are received, validated, OCR-processed, and analyzed. **Air-gapped** means the processing environment has no direct outbound internet route. This preview performs local file validation but sends the document to the configured Vercel AI Gateway for multimodal OCR/analysis, so it must not be marketed as fully air-gapped until a self-hosted local model replaces that call. In production, use egress controls, firewall policy, network segmentation, encryption, least privilege, audit logging, patching, and authoritative issuer verification.
+
+The confidence percentage is an evidence score, not proof of authenticity. SENTINEL-ID returns `MANUAL_REVIEW` when OCR is unavailable, required fields are missing or inconsistent, issuer/security evidence is absent, or deterministic checks fail. A genuine-looking image must never be treated as authentic without authoritative verification.
 
 ## Security and scope
 

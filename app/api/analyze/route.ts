@@ -1,4 +1,5 @@
 import { gateway, generateObject } from 'ai'
+import { createHash } from 'node:crypto'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -30,10 +31,30 @@ function deterministicFindings(documentType: string, text: string) {
   const normalized = text.toUpperCase()
   const failed: string[] = []
   if (text.length < 24) failed.push('OCR evidence is too sparse for a reliable authenticity decision.')
-  if (/SCREENSHOT|SAMPLE|SPECIMEN|DEMO/.test(normalized)) failed.push('Document appears to contain sample or screenshot markers.')
+  if (/SCREENSHOT|SAMPLE|SPECIMEN|DEMO|EDITED|PHOTOSHOP/.test(normalized)) failed.push('Document contains sample, screenshot, or editing markers.')
   if (documentType === 'pan-card' && !/[A-Z]{5}[0-9]{4}[A-Z]/.test(normalized)) failed.push('PAN structure was not detected in OCR text.')
   if (documentType === 'passport' && !/[A-Z0-9<]{20,}/.test(normalized)) failed.push('Passport MRZ-like text was not detected in OCR text.')
+  if (documentType === 'aadhaar' && !/(AADHAAR|UIDAI|आधार)/.test(normalized)) failed.push('Aadhaar/UIDAI issuer evidence was not detected in OCR text.')
+  if (documentType === 'driving-license' && !/(DRIVING|LICENCE|LICENSE|DL)/.test(normalized)) failed.push('Driving-licence issuer evidence was not detected in OCR text.')
+  if (documentType === 'voter-id' && !/(ELECTION|EPIC|VOTER|निर्वाचन)/.test(normalized)) failed.push('Voter/EPIC issuer evidence was not detected in OCR text.')
   return failed
+}
+
+function applyStrictGate(documentType: string, object: z.infer<typeof verdictSchema>, failed: string[]) {
+  const presentFields = object.ocrFields.filter((field) => field.status === 'present').length
+  const hasReliableOcr = presentFields >= 2
+  const hasConflict = object.ocrFields.some((field) => field.status === 'missing' || field.status === 'inconsistent')
+  const requiresAuthorityEvidence = ['aadhaar', 'passport', 'national-id', 'residence-permit'].includes(documentType)
+  const hasAuthorityEvidence = object.aiFindings.some((finding) => /(QR|MRZ|signature|digitally signed|machine-readable|issuer)/i.test(finding))
+  const evidencePenalty = failed.length * 12 + (hasConflict ? 12 : 0) + (!hasReliableOcr ? 24 : 0)
+  const calibratedConfidence = Math.max(0, Math.min(100, object.confidence - evidencePenalty))
+  if (object.verdict === 'GENUINE' && (!hasReliableOcr || hasConflict || failed.length || (requiresAuthorityEvidence && !hasAuthorityEvidence))) {
+    return { ...object, verdict: 'MANUAL_REVIEW' as const, confidence: Math.min(calibratedConfidence, 64), summary: 'Evidence is insufficient for a genuine verdict. Complete authoritative issuer verification or secondary inspection.' }
+  }
+  if (object.verdict === 'GENUINE' && (!requiresAuthorityEvidence || hasAuthorityEvidence)) {
+    return { ...object, confidence: Math.min(calibratedConfidence, 92), summary: `${object.summary} This is an evidence score, not proof of authenticity.` }
+  }
+  return { ...object, confidence: calibratedConfidence }
 }
 
 export async function POST(request: Request) {
@@ -47,18 +68,19 @@ export async function POST(request: Request) {
   if (!allowed.has(file.type)) return NextResponse.json({ error: 'Unsupported file type' }, { status: 415 })
 
   const bytes = Buffer.from(await file.arrayBuffer())
+  const documentHash = createHash('sha256').update(bytes).digest('hex')
   try {
     const { object } = await generateObject({
       model: gateway('google/gemini-2.5-flash'),
       schema: verdictSchema,
       temperature: 0,
-      system: 'You are a conservative document-forensics assistant. Analyze only visible evidence. Do not claim a document is genuine from appearance alone. A missing secure QR/MRZ/digital signature or insufficient OCR must produce MANUAL_REVIEW, never GENUINE. Do not expose sensitive data beyond short OCR field values.',
+      system: 'You are a conservative document-forensics assistant. Analyze only visible evidence. Do not claim a document is genuine from appearance alone. A missing secure QR/MRZ/digital signature or insufficient OCR must produce MANUAL_REVIEW, never GENUINE. Treat screenshots, recaptured screens, composites, mismatched typography, inconsistent dates/numbers, image seams, altered portraits, and issuer/security-feature absence as risk evidence. Separate OCR extraction from visual tamper findings. Never invent a field, security feature, issuer confirmation, or government lookup. Do not expose sensitive data beyond short OCR field values.',
       messages: [{ role: 'user', content: [{ type: 'text', text: `Analyze this ${documentType} using OCR extraction and visual tamper analysis. Apply these checks: ${rules[documentType] || rules.other}. Return a confidence percentage, verdict, concise findings, and extracted fields. This is an aid for a trained officer, not an authoritative government verification.` }, { type: 'file', data: bytes, mediaType: file.type }] }],
     })
     const failed = deterministicFindings(documentType, object.ocrFields.map((field) => `${field.field}: ${field.value}`).join(' '))
-    const safeObject = failed.length && object.verdict === 'GENUINE' ? { ...object, verdict: 'MANUAL_REVIEW' as const, confidence: Math.min(object.confidence, 68), summary: 'Insufficient or conflicting evidence; secondary inspection is required.' } : object
-    return NextResponse.json({ ...safeObject, failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: 'google/gemini-2.5-flash' })
+    const safeObject = applyStrictGate(documentType, object, failed)
+    return NextResponse.json({ ...safeObject, failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: 'google/gemini-2.5-flash', documentHash: `${documentHash.slice(0, 12)}…` })
   } catch {
-    return NextResponse.json({ verdict: 'MANUAL_REVIEW', confidence: 0, summary: 'Automated analysis was unavailable. Do not treat this document as genuine without secondary verification.', ocrFields: [], aiFindings: [], failedChecks: ['OCR or AI analysis unavailable.'], rulesApplied: rules[documentType] || rules.other, provider: 'fallback', model: 'unavailable' })
+    return NextResponse.json({ verdict: 'MANUAL_REVIEW', confidence: 0, summary: 'OCR and AI analysis were unavailable, so no authenticity confidence could be calculated. Do not treat this document as genuine.', ocrFields: [], aiFindings: ['Automated verification service unavailable.'], failedChecks: ['No percentage is meaningful without OCR and AI evidence.'], rulesApplied: rules[documentType] || rules.other, provider: 'fallback', model: 'unavailable' })
   }
 }
