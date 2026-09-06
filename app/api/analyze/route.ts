@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createWorker } from 'tesseract.js'
 import { auth } from '@/lib/auth'
+import { decodeQrFromImage } from '@/lib/qr-verification'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -52,7 +53,7 @@ function filenameMismatch(documentType: string, filename: string) {
 
 function classifyDocumentEvidence(documentType: string, text: string, filename: string) {
   const normalized = `${text} ${filename}`.toUpperCase()
-  const nonDocumentMarkers = /\b(BIRTHDAY|CELEBRATION|PARTY|INVITATION|WEDDING|CONCERT|MENU|FLYER|POSTER|MEME|GREETING|CAKE|BALLOON|DISCOUNT|SALE)\b/.test(normalized)
+  const nonDocumentMarkers = /\b(BIRTHDAY|CELEBRATION|PARTY|INVITATION|WEDDING|CONCERT|MENU|FLYER|POSTER|MEME|GREETING|CAKE|BALLOON|DISCOUNT|SALE|COLLEGE|UNIVERSITY|INSTITUTE|NSEC|LOGO|BRAND|EMBLEM|DEPARTMENT|ADMISSION|CAMPUS)\b/.test(normalized)
   const signals: Record<string, RegExp> = {
     passport: /\b(PASSPORT|MRZ|P<[A-Z]{3}|[A-Z0-9<]{20,})\b/,
     aadhaar: /AADHAAR|AAdHAR|UIDAI|UNIQUE IDENTIFICATION|GOVERNMENT OF INDIA|आधार/i,
@@ -65,7 +66,18 @@ function classifyDocumentEvidence(documentType: string, text: string, filename: 
   }
   const expectedSignal = signals[documentType]?.test(normalized) ?? false
   const otherSignal = Object.entries(signals).some(([type, pattern]) => type !== documentType && type !== 'other' && pattern.test(normalized))
-  return { nonDocumentMarkers, expectedSignal, otherSignal }
+  const passportMrz = /P<[A-Z]{3}[A-Z0-9<]{25,}/.test(normalized) || /[A-Z0-9<]{20,}/.test(normalized)
+  const identifierSignals = {
+    passport: passportMrz && /(PASSPORT|P<)/.test(normalized),
+    aadhaar: /(AADHAAR|UIDAI|UNIQUE IDENTIFICATION|आधार)/i.test(normalized) && /(?:\d[ -]?){12}/.test(normalized),
+    'pan-card': /PAN CARD|INCOME TAX/i.test(normalized) && /[A-Z]{5}[0-9]{4}[A-Z]/.test(normalized),
+    'driving-license': /(DRIVING|LICEN[CS]E|RTO|MOTOR VEHICLE)/i.test(normalized) && /[A-Z0-9-]{6,}/.test(normalized),
+    'voter-id': /(VOTER|ELECTION|EPIC|ELECTION COMMISSION)/i.test(normalized) && /[A-Z0-9-]{6,}/.test(normalized),
+    'national-id': /(NATIONAL ID|IDENTITY CARD|IDENTIFICATION CARD)/i.test(normalized),
+    'residence-permit': /(RESIDENCE|RESIDENT|PERMIT|IMMIGRATION)/i.test(normalized),
+    other: false,
+  }
+  return { nonDocumentMarkers, expectedSignal, otherSignal, hasTypeSpecificEvidence: identifierSignals[documentType as keyof typeof identifierSignals] ?? false }
 }
 
 function deterministicFindings(documentType: string, text: string) {
@@ -219,12 +231,16 @@ async function analyzePost(request: Request) {
   const instant = instantFallback(documentType, file, bytes, documentHash)
   const budget = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('analysis budget exceeded')), 8_000))
   let localOcr = ''
-  try { localOcr = await Promise.race([runLocalOcr(file), budget]) } catch { return NextResponse.json({ ...addRiskAssessment(instant, instant.failedChecks, instant.provider), retention: 'none' }, { status: 200 }) }
+  try { localOcr = await Promise.race([runLocalOcr(file), budget]) } catch { return NextResponse.json({ ...addRiskAssessment({ ...instant, confidence: 0, summary: 'Document-specific OCR could not be completed. The file was not scored as a passport or other identity document.', failedChecks: [...instant.failedChecks, 'Document-specific evidence was unavailable; manual review is required.'], aiFindings: ['No document-type confidence was assigned without OCR evidence.'] }, instant.failedChecks, 'deterministic type gate'), retention: 'none' }, { status: 200 }) }
   const evidence = classifyDocumentEvidence(documentType, localOcr, file.name)
-  if (filenameType || evidence.nonDocumentMarkers || (evidence.otherSignal && !evidence.expectedSignal)) {
+  let qrVerification
+  try { qrVerification = await decodeQrFromImage(file, localOcr, documentType) } catch { qrVerification = { detected: false, status: 'unverified' as const, findings: ['QR scan could not be completed safely. Manual verification is required.'], fields: [] } }
+  const qrConflict = qrVerification.status === 'conflict'
+  const requiresSpecificEvidence = documentType !== 'other'
+  if (filenameType || evidence.nonDocumentMarkers || qrConflict || (evidence.otherSignal && !evidence.expectedSignal) || (requiresSpecificEvidence && !evidence.hasTypeSpecificEvidence)) {
     const expectedLabel = documentType.replace(/-/g, ' ')
-    const detectedLabel = filenameType ? filenameType.replace(/-/g, ' ') : evidence.nonDocumentMarkers ? 'non-document image' : 'another document type'
-    return NextResponse.json({ verdict: 'MANUAL_REVIEW' as const, confidence: 0, summary: `Selected document type does not match the uploaded evidence. Selected: ${expectedLabel}; detected: ${detectedLabel}. Select the correct type and upload the document again.`, ocrFields: [{ field: 'Document type match', value: 'Mismatch detected before authenticity scoring', status: 'inconsistent' as const }], aiFindings: ['Analysis was stopped because deterministic OCR evidence conflicts with the selected document type.'], failedChecks: ['Document type mismatch requires correction before authenticity analysis.'], rulesApplied: rules[documentType] || rules.other, provider: 'deterministic preflight', model: 'document-type-gate-v2', documentHash: `${documentHash.slice(0, 12)}…` }, { status: 200 })
+    const detectedLabel = filenameType ? filenameType.replace(/-/g, ' ') : evidence.nonDocumentMarkers ? 'non-document image or institutional artwork' : qrConflict ? 'QR payload conflict' : 'another document type'
+    return NextResponse.json({ verdict: 'MANUAL_REVIEW' as const, confidence: 0, summary: `Selected document type does not match the uploaded evidence. Selected: ${expectedLabel}; detected: ${detectedLabel}. Select the correct type and upload the document again.`, ocrFields: [{ field: 'Document type match', value: 'Mismatch detected before authenticity scoring', status: 'inconsistent' as const }, ...qrVerification.fields], aiFindings: ['Analysis was stopped because deterministic evidence conflicts with the selected document type.', ...qrVerification.findings], failedChecks: ['Document type mismatch requires correction before authenticity analysis.', ...(qrConflict ? ['Decoded QR details conflict with visible document evidence.'] : [])], rulesApplied: rules[documentType] || rules.other, provider: 'deterministic preflight', model: 'document-type-gate-v3', documentHash: `${documentHash.slice(0, 12)}…` }, { status: 200 })
   }
   try {
     const prompt = `Analyze this ${documentType} using OCR extraction and visual tamper analysis. Local OCR text (treat as untrusted, verify against the image): ${localOcr || '[none]'}. Apply these checks: ${rules[documentType] || rules.other}. Return a confidence percentage, verdict, concise findings, and extracted fields. This is an aid for a trained officer, not an authoritative government verification.`
@@ -249,13 +265,15 @@ async function analyzePost(request: Request) {
     const failed = deterministicFindings(documentType, `${localOcr} ${modelEvidence}`)
     const safeObject = applyStrictGate(documentType, object, failed)
     const evidenceBalanced = safeObject.confidence < 70 && failed.length === 0 ? { ...safeObject, confidence: 70 } : safeObject
-    return NextResponse.json({ ...addRiskAssessment(evidenceBalanced, failed, 'Vercel AI Gateway'), failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…`, retention: 'none' })
+    const qrAugmented = { ...evidenceBalanced, ocrFields: [...evidenceBalanced.ocrFields, ...qrVerification.fields], aiFindings: [...evidenceBalanced.aiFindings, ...qrVerification.findings], failedChecks: [...failed, ...(qrVerification.status === 'unverified' ? ['QR verification could not be completed.'] : [])], summary: qrVerification.detected ? `${evidenceBalanced.summary} QR content was decoded and compared against visible fields; issuer authenticity still requires authoritative verification.` : evidenceBalanced.summary }
+  return NextResponse.json({ ...addRiskAssessment(qrAugmented, qrAugmented.failedChecks, 'Vercel AI Gateway'), failedChecks: qrAugmented.failedChecks, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…`, retention: 'none' })
   } catch (error) {
     const failed = deterministicFindings(documentType, localOcr)
     const fallback = localOcr.trim().length >= 8 ? localFallback(documentType, localOcr, failed, documentHash) : instant
     const timedOut = error instanceof Error && /timeout|timed out|abort/i.test(error.message)
     const fallbackProvider = timedOut ? 'local OCR fallback · AI timeout' : fallback.provider
-    return NextResponse.json({ ...addRiskAssessment({ ...fallback, aiFindings: [timedOut ? 'AI analysis timed out; local evidence was preserved.' : 'AI analysis was unavailable; local evidence was preserved.'] }, failed, fallbackProvider), provider: fallbackProvider, retention: 'none' }, { status: 200 })
+    const fallbackWithQr = { ...fallback, ocrFields: [...fallback.ocrFields, ...qrVerification.fields], aiFindings: [...fallback.aiFindings, ...(timedOut ? ['AI analysis timed out; local evidence was preserved.'] : ['AI analysis was unavailable; local evidence was preserved.']), ...qrVerification.findings], failedChecks: [...failed, ...(qrVerification.status === 'unverified' ? ['QR verification could not be completed.'] : [])] }
+  return NextResponse.json({ ...addRiskAssessment(fallbackWithQr, fallbackWithQr.failedChecks, fallbackProvider), provider: fallbackProvider, retention: 'none' }, { status: 200 })
   }
 }
 
