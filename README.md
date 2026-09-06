@@ -65,7 +65,7 @@ Never commit credentials, document samples containing personal data, or generate
 
 ## Processing node and air-gapped mode
 
-A **node** is the controlled runtime where document files are received, validated, OCR-processed, and analyzed. **Air-gapped** means the processing environment has no direct outbound internet route; in production, egress controls, firewall policy, network segmentation, and allowlisted service access prevent documents from being sent to unknown destinations. This reduces exfiltration risk, but it is not a guarantee by itself: authentication, least privilege, encryption, audit logging, patching, and authoritative issuer verification remain necessary.
+A **node** is the controlled runtime where document files are received, validated, OCR-processed, and analyzed. **Air-gapped** means the processing environment has no direct outbound internet route. This preview performs local file validation but sends the document to the configured Vercel AI Gateway for multimodal OCR/analysis, so it must not be marketed as fully air-gapped until a self-hosted local model replaces that call. In production, use egress controls, firewall policy, network segmentation, encryption, least privilege, audit logging, patching, and authoritative issuer verification.
 
 The confidence percentage is an evidence score, not proof of authenticity. SENTINEL-ID returns `MANUAL_REVIEW` when OCR is unavailable, required fields are missing or inconsistent, issuer/security evidence is absent, or deterministic checks fail. A genuine-looking image must never be treated as authentic without authoritative verification.
 
