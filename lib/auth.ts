@@ -14,6 +14,11 @@ const baseURL = toOrigin(process.env.BETTER_AUTH_URL)
   ?? 'http://localhost:3000'
 
 const isDevelopment = process.env.NODE_ENV === 'development'
+const authSecret = process.env.BETTER_AUTH_SECRET
+if (!authSecret || authSecret.length < 32) {
+  throw new Error('BETTER_AUTH_SECRET must be configured with at least 32 characters before Better Auth can start.')
+}
+
 const trustedOriginCandidates = [
   baseURL,
   ...(isDevelopment ? [
