@@ -3,8 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'SENTINEL-ID | Officer Console',
+  description: 'Offline, explainable identity and document screening for SIH 2026.',
   generator: 'v0.app',
   icons: {
     icon: [
