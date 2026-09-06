@@ -97,18 +97,23 @@ function instantFallback(documentType: string, file: File, bytes: Buffer, docume
   const hasUsableDimensions = pixelCount >= 900_000 && pixelCount <= 80_000_000
   const tooSmall = dimensions ? dimensions.width < 700 || dimensions.height < 450 : false
   const suspiciousAspect = dimensions ? dimensions.width / dimensions.height > 4.5 || dimensions.height / dimensions.width > 4.5 : false
+  const isPdf = file.type === 'application/pdf'
+  const pdfHeaderValid = !isPdf || bytes.subarray(0, 5).toString('ascii') === '%PDF-'
+  const pdfTrailerValid = !isPdf || bytes.lastIndexOf(Buffer.from('%%EOF')) >= Math.max(0, bytes.length - 2_048)
   const integrityScore = bytes.length > 20_000 ? 18 : bytes.length > 2_048 ? 10 : 3
-  const formatScore = file.type === 'application/pdf' ? 14 : 18
-  const dimensionScore = dimensions ? (hasUsableDimensions ? 25 : 10) : 4
+  const formatScore = pdfHeaderValid && pdfTrailerValid ? 18 : 4
+  const dimensionScore = dimensions ? (hasUsableDimensions ? 25 : 10) : isPdf ? 18 : 4
   const qualityScore = !tooSmall && !suspiciousAspect ? 12 : 3
   const riskPenalty = suspiciousAspect ? 16 : tooSmall ? 10 : 0
   const confidence = Math.max(18, Math.min(82, formatScore + integrityScore + dimensionScore + qualityScore - riskPenalty))
   const findings = [
     'OCR/AI analysis was unavailable within the response budget; this is a deterministic quality/evidence score.',
-    dimensions ? `Image dimensions detected: ${dimensions.width} × ${dimensions.height}.` : 'Image dimensions could not be verified from the file header.',
+    dimensions ? `Image dimensions detected: ${dimensions.width} × ${dimensions.height}.` : isPdf ? 'PDF container structure detected; page dimensions require rendering.' : 'Image dimensions could not be verified from the file header.',
   ]
   const failedChecks = [
     'Machine-readable authenticity evidence was not evaluated.',
+    ...(isPdf && !pdfHeaderValid ? ['PDF header is invalid.'] : []),
+    ...(isPdf && !pdfTrailerValid ? ['PDF end-of-file marker is missing or malformed.'] : []),
     ...(tooSmall ? ['Image resolution is low for reliable forensic inspection.'] : []),
     ...(suspiciousAspect ? ['Unusual aspect ratio requires manual review.'] : []),
   ]
