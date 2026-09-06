@@ -1,15 +1,12 @@
 'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Moon, Sun } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
 
 export function AuthForm() {
   const router = useRouter()
-  const [email, setEmail] = useState('officer@sentinel.id')
-  const [password, setPassword] = useState('')
-  const [name, setName] = useState('Field Officer')
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
@@ -42,27 +39,6 @@ export function AuthForm() {
     }
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setPending(true)
-    setError('')
-    try {
-      const result = mode === 'sign-in'
-        ? await authClient.signIn.email({ email, password })
-        : await authClient.signUp.email({ email, password, name })
-      if (result.error) {
-        setError(mode === 'sign-in'
-          ? 'Sign-in failed. Use the registered officer email and password, or create a new account below.'
-          : 'Unable to create the officer account. Check the details and try again.')
-      } else {
-        window.location.assign('/')
-      }
-    } catch {
-      setError('The authentication service is temporarily unavailable. Please try again.')
-    } finally {
-      setPending(false)
-    }
-  }
 
   return (
     <main className="auth-shell">
@@ -77,18 +53,11 @@ export function AuthForm() {
         <button className="auth-theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />} {theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
         <p className="eyebrow">OFFICER ACCESS</p>
         <h2>{mode === 'sign-in' ? 'Welcome back.' : 'Create your console.'}</h2>
-        <p className="muted">{mode === 'sign-in' ? 'Sign in to review identity dossiers.' : 'Provision a secure officer account.'}</p>
-        {mode === 'sign-in' && <p className="auth-hint">Demo account: officer@sentinel.id</p>}
-        <button type="button" className="oauth-button" onClick={continueWithGoogle} disabled={pending}><span className="google-g">G</span> Continue with Google</button>
-        <div className="auth-divider"><span>or use email</span></div>
-        <form onSubmit={submit}>
-          {mode === 'sign-up' && <label>Full name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>}
-          <label>Work email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-          <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={12} required /></label>
-          {error && <p className="form-error">{error}</p>}
-          <button className="primary-button" disabled={pending}>{pending ? 'Authenticating…' : mode === 'sign-in' ? 'Enter console' : 'Create account'}</button>
-        </form>
-        <button className="text-button" onClick={() => setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in')}>
+        <p className="muted">{mode === 'sign-in' ? 'Sign in with your verified officer identity.' : 'Create an officer account with a verified Google email.'}</p>
+        {mode === 'sign-up' && <p className="auth-hint">Only Google accounts with a verified email address can create a console.</p>}
+        <button type="button" className="oauth-button" onClick={continueWithGoogle} disabled={pending}><span className="google-g">G</span> {pending ? 'Connecting…' : mode === 'sign-in' ? 'Continue with Google' : 'Create with Google'}</button>
+        {error && <p className="form-error">{error}</p>}
+        <button className="text-button" onClick={() => { setError(''); setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in') }}>
           {mode === 'sign-in' ? 'Need an account? Create one' : 'Already registered? Sign in'}
         </button>
       </section>
