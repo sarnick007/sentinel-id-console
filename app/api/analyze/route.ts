@@ -59,8 +59,8 @@ function instantFallback(documentType: string, file: File, bytes: Buffer, docume
   const sizeScore = Math.min(24, Math.max(4, Math.round(Math.log2(bytes.length / 1024 + 1) * 4)))
   const integrityScore = bytes.length > 2048 ? 20 : 8
   const imageScore = file.type.startsWith('image/') ? 18 : 10
-  const confidence = Math.min(64, formatScore + sizeScore + integrityScore + imageScore)
-  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: 'Instant preflight completed. This is a document-quality and integrity score, not proof of authenticity; run authoritative QR or issuer verification before acceptance.', ocrFields: [{ field: 'Upload integrity', value: 'File format and byte structure validated', status: 'present' as const }], aiFindings: ['OCR/AI analysis was bypassed or unavailable within the four-second response budget.'], failedChecks: ['Machine-readable authenticity evidence was not evaluated.'], rulesApplied: rules[documentType] || rules.other, provider: 'instant preflight fallback', model: 'format-integrity-v1', documentHash: `${documentHash.slice(0, 12)}…` }
+  const confidence = Math.max(32, Math.min(64, formatScore + sizeScore + integrityScore + imageScore))
+  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: 'Instant preflight completed. This quality score reflects a valid readable upload, not proof of authenticity; run authoritative QR or issuer verification before acceptance.', ocrFields: [{ field: 'Upload integrity', value: 'File format and byte structure validated', status: 'present' as const }], aiFindings: ['OCR/AI analysis was unavailable; a deterministic upload-quality score was returned.'], failedChecks: ['Machine-readable authenticity evidence was not evaluated.'], rulesApplied: rules[documentType] || rules.other, provider: 'instant preflight fallback', model: 'format-integrity-v1', documentHash: `${documentHash.slice(0, 12)}…` }
 }
 
 function localFallback(documentType: string, ocrText: string, failed: string[], documentHash: string) {
@@ -151,7 +151,7 @@ async function analyzePost(request: Request) {
     return NextResponse.json({ ...safeObject, failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…` })
   } catch (error) {
     const failed = deterministicFindings(documentType, localOcr)
-    const fallback = localOcr ? localFallback(documentType, localOcr, failed, documentHash) : instant
+    const fallback = localOcr.trim().length >= 8 ? localFallback(documentType, localOcr, failed, documentHash) : instant
     const timedOut = error instanceof Error && /timeout|timed out|abort/i.test(error.message)
     return NextResponse.json({ ...fallback, provider: timedOut ? 'local OCR fallback · AI timeout' : fallback.provider, aiFindings: [timedOut ? 'AI analysis timed out; local evidence was preserved.' : 'AI analysis was unavailable; local evidence was preserved.'] }, { status: 200 })
   }
