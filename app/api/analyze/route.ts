@@ -204,7 +204,7 @@ async function analyzePost(request: Request) {
     return NextResponse.json({ verdict: 'MANUAL_REVIEW' as const, confidence: 0, summary: `Selected document type does not match the uploaded filename. Selected: ${expectedLabel}; detected filename marker: ${detectedLabel}. Select the correct type and upload the document again.`, ocrFields: [{ field: 'Document type match', value: 'Mismatch detected from filename marker', status: 'inconsistent' as const }], aiFindings: ['Analysis was stopped before scoring because the selected type and uploaded filename conflict.'], failedChecks: ['Document type mismatch requires correction before authenticity analysis.'], rulesApplied: rules[documentType] || rules.other, provider: 'deterministic preflight', model: 'document-type-gate-v1', documentHash: `${documentHash.slice(0, 12)}…` }, { status: 200 })
   }
   const instant = instantFallback(documentType, file, bytes, documentHash)
-  const budget = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('analysis budget exceeded')), 900))
+  const budget = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('analysis budget exceeded')), 8_000))
   let localOcr = ''
   try { localOcr = await Promise.race([runLocalOcr(file), budget]) } catch {     return NextResponse.json({ ...addRiskAssessment(instant, instant.failedChecks, instant.provider), retention: 'none' }, { status: 200 }) }
   try {
@@ -216,7 +216,7 @@ async function analyzePost(request: Request) {
       temperature: 0,
       system,
       messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: prompt }, { type: 'file' as const, data: bytes, mediaType: file.type }] }],
-      abortSignal: AbortSignal.timeout(1_800),
+      abortSignal: AbortSignal.timeout(7_000),
     })
     let object: z.infer<typeof verdictSchema>
     let modelUsed = 'google/gemini-2.5-flash'

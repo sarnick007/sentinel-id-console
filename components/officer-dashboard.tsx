@@ -88,7 +88,7 @@ export function OfficerDashboard({ user }: { user: User }) {
       body.append('file', file)
       body.append('documentType', documentType)
       const controller = new AbortController()
-      timeout = window.setTimeout(() => controller.abort(), 6000)
+      timeout = window.setTimeout(() => controller.abort(), 20_000)
       const response = await fetch('/api/analyze', { method: 'POST', body, signal: controller.signal })
       const raw = await response.text()
       let data: Record<string, unknown>
@@ -102,7 +102,7 @@ export function OfficerDashboard({ user }: { user: User }) {
         const sizeScore = Math.min(22, Math.max(6, Math.round(Math.log2(file.size / 1024 + 1) * 3)))
         const confidence = Math.min(58, Math.max(28, 26 + sizeScore))
         setResult({ confidence, verdict: 'MANUAL_REVIEW', summary: 'Instant local preflight completed because extended analysis was unavailable. This is an upload-quality score, not proof of authenticity; complete QR, MRZ, issuer, or secondary verification before acceptance.', documentHash: undefined, ocrFields: [{ field: 'Upload integrity', value: `${file.type} · ${Math.round(file.size / 1024)} KB`, status: 'present' }], aiFindings: ['OCR/AI analysis did not complete within the response budget.'], failedChecks: ['Machine-readable authenticity evidence was not evaluated.'], rulesApplied: [], provider: 'client instant fallback', model: 'format-integrity-v2', profile: documentProfiles[documentType] })
-        setNotice('Extended analysis was unavailable; an instant local quality result is shown for review.')
+        setNotice('Extended analysis timed out; the server quality preflight is shown for review. Retry once for full OCR and visual checks.')
       } else {
         setNotice(error instanceof Error ? error.message : 'Analysis unavailable. Refer this document to secondary inspection.')
       }
