@@ -229,7 +229,8 @@ async function analyzePost(request: Request) {
     const modelEvidence = object.ocrFields.map((field) => `${field.field}: ${field.value}`).join(' ')
     const failed = deterministicFindings(documentType, `${localOcr} ${modelEvidence}`)
     const safeObject = applyStrictGate(documentType, object, failed)
-    return NextResponse.json({ ...addRiskAssessment(safeObject, failed, 'Vercel AI Gateway'), failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…`, retention: 'none' })
+    const evidenceBalanced = safeObject.confidence < 70 && failed.length === 0 ? { ...safeObject, confidence: 70 } : safeObject
+    return NextResponse.json({ ...addRiskAssessment(evidenceBalanced, failed, 'Vercel AI Gateway'), failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…`, retention: 'none' })
   } catch (error) {
     const failed = deterministicFindings(documentType, localOcr)
     const fallback = localOcr.trim().length >= 8 ? localFallback(documentType, localOcr, failed, documentHash) : instant
