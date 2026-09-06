@@ -72,6 +72,10 @@ export function OfficerDashboard({ user }: { user: User }) {
 
   async function analyze() {
     if (!file) { setNotice(`Choose a ${documentProfiles[documentType].label} file first.`); return }
+    const name = file.name.toLowerCase()
+    const filenameHints: Record<DocumentType, string[]> = { passport: ['passport', 'mrz'], aadhaar: ['aadhaar', 'aadhar', 'uidai'], 'driving-license': ['driving', 'license', 'licence'], 'voter-id': ['voter', 'epic'], 'pan-card': ['pan'], 'national-id': ['national'], 'residence-permit': ['residence', 'permit'], other: [] }
+    const filenameSuggestsAnotherType = Object.entries(filenameHints).some(([type, hints]) => type !== documentType && hints.some((hint) => name.includes(hint)))
+    if (filenameSuggestsAnotherType) { setNotice(`The filename appears to describe a different document type than ${documentProfiles[documentType].label}. Select the matching type before analysis.`); return }
     setAnalyzing(true); setResult(null); setNotice('')
     let timeout: number | undefined
     try {
