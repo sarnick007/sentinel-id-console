@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { auth } from '@/lib/auth'
 
 export const runtime = 'nodejs'
+export const maxDuration = 60
 
 const maxBytes = 10 * 1024 * 1024
 const verdictSchema = z.object({
@@ -70,16 +71,27 @@ export async function POST(request: Request) {
   const bytes = Buffer.from(await file.arrayBuffer())
   const documentHash = createHash('sha256').update(bytes).digest('hex')
   try {
-    const { object } = await generateObject({
-      model: gateway('google/gemini-2.5-flash'),
+    const prompt = `Analyze this ${documentType} using OCR extraction and visual tamper analysis. Apply these checks: ${rules[documentType] || rules.other}. Return a confidence percentage, verdict, concise findings, and extracted fields. This is an aid for a trained officer, not an authoritative government verification.`
+    const system = 'You are a conservative document-forensics assistant. Analyze only visible evidence. Do not claim a document is genuine from appearance alone. A missing secure QR/MRZ/digital signature or insufficient OCR must produce MANUAL_REVIEW, never GENUINE. Treat screenshots, recaptured screens, composites, mismatched typography, inconsistent dates/numbers, image seams, altered portraits, and issuer/security-feature absence as risk evidence. Separate OCR extraction from visual tamper findings. Never invent a field, security feature, issuer confirmation, or government lookup. Do not expose sensitive data beyond short OCR field values.'
+    const requestOptions = (modelId: string) => ({
+      model: gateway(modelId),
       schema: verdictSchema,
       temperature: 0,
-      system: 'You are a conservative document-forensics assistant. Analyze only visible evidence. Do not claim a document is genuine from appearance alone. A missing secure QR/MRZ/digital signature or insufficient OCR must produce MANUAL_REVIEW, never GENUINE. Treat screenshots, recaptured screens, composites, mismatched typography, inconsistent dates/numbers, image seams, altered portraits, and issuer/security-feature absence as risk evidence. Separate OCR extraction from visual tamper findings. Never invent a field, security feature, issuer confirmation, or government lookup. Do not expose sensitive data beyond short OCR field values.',
-      messages: [{ role: 'user', content: [{ type: 'text', text: `Analyze this ${documentType} using OCR extraction and visual tamper analysis. Apply these checks: ${rules[documentType] || rules.other}. Return a confidence percentage, verdict, concise findings, and extracted fields. This is an aid for a trained officer, not an authoritative government verification.` }, { type: 'file', data: bytes, mediaType: file.type }] }],
+      system,
+      messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: prompt }, { type: 'file' as const, data: bytes, mediaType: file.type }] }],
+      abortSignal: AbortSignal.timeout(45_000),
     })
+    let object: z.infer<typeof verdictSchema>
+    let modelUsed = 'google/gemini-2.5-flash'
+    try {
+      ({ object } = await generateObject(requestOptions(modelUsed)))
+    } catch {
+      modelUsed = 'google/gemini-2.5-flash-lite';
+      ({ object } = await generateObject(requestOptions(modelUsed)))
+    }
     const failed = deterministicFindings(documentType, object.ocrFields.map((field) => `${field.field}: ${field.value}`).join(' '))
     const safeObject = applyStrictGate(documentType, object, failed)
-    return NextResponse.json({ ...safeObject, failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: 'google/gemini-2.5-flash', documentHash: `${documentHash.slice(0, 12)}…` })
+    return NextResponse.json({ ...safeObject, failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…` })
   } catch {
     return NextResponse.json({ verdict: 'MANUAL_REVIEW', confidence: 0, summary: 'OCR and AI analysis were unavailable, so no authenticity confidence could be calculated. Do not treat this document as genuine.', ocrFields: [], aiFindings: ['Automated verification service unavailable.'], failedChecks: ['No percentage is meaningful without OCR and AI evidence.'], rulesApplied: rules[documentType] || rules.other, provider: 'fallback', model: 'unavailable' })
   }
