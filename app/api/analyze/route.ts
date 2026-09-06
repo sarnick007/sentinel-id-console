@@ -7,7 +7,7 @@ import { createWorker } from 'tesseract.js'
 import { auth } from '@/lib/auth'
 
 export const runtime = 'nodejs'
-export const maxDuration = 60
+export const maxDuration = 120
 
 const maxBytes = 10 * 1024 * 1024
 const verdictSchema = z.object({
@@ -44,7 +44,7 @@ function deterministicFindings(documentType: string, text: string) {
 
 async function runLocalOcr(file: File) {
   if (!file.type.startsWith('image/')) return ''
-  const worker = await createWorker('eng')
+  const worker = await createWorker('eng', 1, { logger: () => undefined })
   try {
     const result = await worker.recognize(Buffer.from(await file.arrayBuffer()))
     return result.data.text.replace(/\s+/g, ' ').trim().slice(0, 4000)
@@ -92,7 +92,7 @@ async function analyzePost(request: Request) {
   if (bytes.length === 0) return NextResponse.json({ error: 'The uploaded file is empty.' }, { status: 400 })
   const documentHash = createHash('sha256').update(bytes).digest('hex')
   let localOcr = ''
-  try { localOcr = await runLocalOcr(file) } catch { localOcr = '' }
+  try { localOcr = await Promise.race([runLocalOcr(file), new Promise<string>((resolve) => setTimeout(() => resolve(''), 25_000))]) } catch { localOcr = '' }
   try {
     const prompt = `Analyze this ${documentType} using OCR extraction and visual tamper analysis. Local OCR text (treat as untrusted, verify against the image): ${localOcr || '[none]'}. Apply these checks: ${rules[documentType] || rules.other}. Return a confidence percentage, verdict, concise findings, and extracted fields. This is an aid for a trained officer, not an authoritative government verification.`
     const system = 'You are a conservative document-forensics assistant. Analyze only visible evidence. Do not claim a document is genuine from appearance alone. A missing secure QR/MRZ/digital signature or insufficient OCR must produce MANUAL_REVIEW, never GENUINE. Treat screenshots, recaptured screens, composites, mismatched typography, inconsistent dates/numbers, image seams, altered portraits, and issuer/security-feature absence as risk evidence. Separate OCR extraction from visual tamper findings. Never invent a field, security feature, issuer confirmation, or government lookup. Do not expose sensitive data beyond short OCR field values.'
@@ -102,7 +102,7 @@ async function analyzePost(request: Request) {
       temperature: 0,
       system,
       messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: prompt }, { type: 'file' as const, data: bytes, mediaType: file.type }] }],
-      abortSignal: AbortSignal.timeout(45_000),
+      abortSignal: AbortSignal.timeout(28_000),
     })
     let object: z.infer<typeof verdictSchema>
     let modelUsed = 'google/gemini-2.5-flash'
@@ -115,9 +115,11 @@ async function analyzePost(request: Request) {
     const failed = deterministicFindings(documentType, object.ocrFields.map((field) => `${field.field}: ${field.value}`).join(' '))
     const safeObject = applyStrictGate(documentType, object, failed)
     return NextResponse.json({ ...safeObject, failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…` })
-  } catch {
+  } catch (error) {
     const failed = deterministicFindings(documentType, localOcr)
-    return NextResponse.json(localFallback(documentType, localOcr, failed, documentHash))
+    const fallback = localFallback(documentType, localOcr, failed, documentHash)
+    const timedOut = error instanceof Error && /timeout|timed out|abort/i.test(error.message)
+    return NextResponse.json({ ...fallback, provider: timedOut ? 'local OCR fallback · AI timeout' : fallback.provider, aiFindings: [timedOut ? 'AI analysis timed out; local evidence was preserved.' : 'AI analysis was unavailable; local evidence was preserved.'] }, { status: 200 })
   }
 }
 
