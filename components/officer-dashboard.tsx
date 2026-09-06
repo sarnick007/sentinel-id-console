@@ -79,7 +79,7 @@ export function OfficerDashboard({ user }: { user: User }) {
       body.append('file', file)
       body.append('documentType', documentType)
       const controller = new AbortController()
-      timeout = window.setTimeout(() => controller.abort(), 4000)
+      timeout = window.setTimeout(() => controller.abort(), 6000)
       const response = await fetch('/api/analyze', { method: 'POST', body, signal: controller.signal })
       const raw = await response.text()
       let data: Record<string, unknown>
