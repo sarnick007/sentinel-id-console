@@ -47,11 +47,8 @@ async function runLocalOcr(file: File) {
   const worker = await createWorker('eng', 1, { logger: () => undefined })
   try {
     const image = Buffer.from(await file.arrayBuffer())
-    const first = await worker.recognize(image)
-    const firstText = first.data.text.replace(/\s+/g, ' ').trim()
-    if (firstText.length >= 100) return firstText.slice(0, 4000)
-    const second = await worker.recognize(image)
-    return `${firstText} ${second.data.text.replace(/\s+/g, ' ').trim()}`.replace(/\s+/g, ' ').trim().slice(0, 4000)
+    const result = await worker.recognize(image)
+    return result.data.text.replace(/\s+/g, ' ').trim().slice(0, 4000)
   } finally {
     await worker.terminate()
   }
@@ -73,8 +70,10 @@ function localFallback(documentType: string, ocrText: string, failed: string[], 
     ocrText && { field: 'OCR evidence', value: `${ocrText.length} characters extracted`, status: 'present' as const },
   ].filter(Boolean) as Array<{ field: string; value: string; status: 'present' }>
   const evidencePoints = (hasIssuer ? 22 : 0) + (aadhaarNumber ? 20 : 0) + (hasDate ? 8 : 0) + (hasGender ? 6 : 0) + (hasQrSignal ? 10 : 0) + (ocrText.length > 80 ? 8 : 0)
-  const confidence = Math.min(74, Math.max(18, evidencePoints))
-  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: hasIssuer ? 'Local OCR found multiple Aadhaar evidence signals. Authenticity still requires secure QR/issuer verification.' : 'Local OCR extracted limited evidence; complete issuer or secondary verification before accepting this document.', ocrFields: fields, aiFindings: ['Local OCR fallback used because AI analysis was unavailable.'], failedChecks: failed.length ? failed : ['AI visual/tamper analysis unavailable; authenticity not established.'], rulesApplied: rules[documentType] || rules.other, provider: 'local OCR fallback', model: 'tesseract.js', documentHash: `${documentHash.slice(0, 12)}…` }
+  const confidence = Math.min(74, evidencePoints)
+  const emptyEvidence = ocrText.length === 0
+  const evidenceMessage = emptyEvidence ? 'OCR could not read this image. The score reflects missing machine-readable evidence, not a finding that the Aadhaar card is fake.' : 'OCR evidence was extracted locally; secure issuer or QR verification is still required.'
+  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: hasIssuer ? 'Local OCR found multiple Aadhaar evidence signals. Authenticity still requires secure QR/issuer verification.' : evidenceMessage, ocrFields: fields, aiFindings: ['Local OCR fallback used because AI analysis was unavailable.'], failedChecks: failed.length ? failed : ['AI visual/tamper analysis unavailable; authenticity not established.'], rulesApplied: rules[documentType] || rules.other, provider: 'local OCR fallback', model: 'tesseract.js', documentHash: `${documentHash.slice(0, 12)}…` }
 }
 
 function applyStrictGate(documentType: string, object: z.infer<typeof verdictSchema>, failed: string[]) {
@@ -115,7 +114,7 @@ async function analyzePost(request: Request) {
   if (!((file.type === 'application/pdf' && isPdf) || (file.type === 'image/jpeg' && isJpeg) || (file.type === 'image/png' && isPng) || (file.type === 'image/webp' && isWebp))) return NextResponse.json({ error: 'File content does not match its declared type.' }, { status: 415 })
   const documentHash = createHash('sha256').update(bytes).digest('hex')
   let localOcr = ''
-  try { localOcr = await Promise.race([runLocalOcr(file), new Promise<string>((resolve) => setTimeout(() => resolve(''), 25_000))]) } catch { localOcr = '' }
+  try { localOcr = await Promise.race([runLocalOcr(file), new Promise<string>((resolve) => setTimeout(() => resolve(''), 12_000))]) } catch { localOcr = '' }
   try {
     const prompt = `Analyze this ${documentType} using OCR extraction and visual tamper analysis. Local OCR text (treat as untrusted, verify against the image): ${localOcr || '[none]'}. Apply these checks: ${rules[documentType] || rules.other}. Return a confidence percentage, verdict, concise findings, and extracted fields. This is an aid for a trained officer, not an authoritative government verification.`
     const system = 'You are a conservative document-forensics assistant. Analyze only visible evidence. Do not claim a document is genuine from appearance alone. A missing secure QR/MRZ/digital signature or insufficient OCR must produce MANUAL_REVIEW, never GENUINE. Treat screenshots, recaptured screens, composites, mismatched typography, inconsistent dates/numbers, image seams, altered portraits, and issuer/security-feature absence as risk evidence. Separate OCR extraction from visual tamper findings. Never invent a field, security feature, issuer confirmation, or government lookup. Do not expose sensitive data beyond short OCR field values.'
@@ -125,7 +124,7 @@ async function analyzePost(request: Request) {
       temperature: 0,
       system,
       messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: prompt }, { type: 'file' as const, data: bytes, mediaType: file.type }] }],
-      abortSignal: AbortSignal.timeout(28_000),
+      abortSignal: AbortSignal.timeout(12_000),
     })
     let object: z.infer<typeof verdictSchema>
     let modelUsed = 'google/gemini-2.5-flash'
