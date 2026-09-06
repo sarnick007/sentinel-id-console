@@ -13,6 +13,9 @@ const maxBytes = 10 * 1024 * 1024
 const verdictSchema = z.object({
   verdict: z.enum(['GENUINE', 'LIKELY_FAKE', 'MANUAL_REVIEW']),
   confidence: z.number().int().min(0).max(100),
+  riskScore: z.number().int().min(0).max(100).optional(),
+  riskLevel: z.enum(['LOW', 'REVIEW', 'HIGH']).optional(),
+  riskReasons: z.array(z.string().max(220)).max(8).optional(),
   summary: z.string().max(500),
   ocrFields: z.array(z.object({ field: z.string().max(80), value: z.string().max(180), status: z.enum(['present', 'missing', 'inconsistent']) })).max(20),
   aiFindings: z.array(z.string().max(220)).max(8),
@@ -143,6 +146,15 @@ function localFallback(documentType: string, ocrText: string, failed: string[], 
   return { verdict: 'MANUAL_REVIEW' as const, confidence: Math.min(74, evidencePoints), summary, ocrFields: fields, aiFindings: ['Local OCR fallback used because AI analysis was unavailable.'], failedChecks: failed.length ? failed : ['AI visual/tamper analysis unavailable; authenticity not established.'], rulesApplied: rules[documentType] || rules.other, provider: 'local OCR fallback', model: 'tesseract.js', documentHash: `${documentHash.slice(0, 12)}…` }
 }
 
+function addRiskAssessment(object: Record<string, unknown>, failed: string[], provider: string) {
+  const findings = Array.isArray(object.aiFindings) ? object.aiFindings.filter((item): item is string => typeof item === 'string') : []
+  const hasAuthoritySignal = [...failed, ...findings].some((item) => /(QR|MRZ|issuer|digitally signed|machine-readable)/i.test(item))
+  const riskReasons = [...failed, ...findings.filter((item) => /(screenshot|sample|edited|seam|inconsistent|missing|unavailable|tamper|timeout)/i.test(item))].slice(0, 8)
+  const baseRisk = failed.length * 14 + (hasAuthoritySignal ? 0 : 18) + (provider.includes('fallback') || provider.includes('timeout') ? 10 : 0)
+  const riskScore = Math.max(0, Math.min(100, baseRisk))
+  return { ...object, riskScore, riskLevel: riskScore >= 60 ? 'HIGH' as const : riskScore >= 25 ? 'REVIEW' as const : 'LOW' as const, riskReasons: riskReasons.length ? riskReasons : ['No high-risk signal was detected in the available evidence; authoritative verification is still recommended.'] }
+}
+
 function applyStrictGate(documentType: string, object: z.infer<typeof verdictSchema>, failed: string[]) {
   const presentFields = object.ocrFields.filter((field) => field.status === 'present').length
   const hasReliableOcr = presentFields >= 2
@@ -189,7 +201,7 @@ async function analyzePost(request: Request) {
   const instant = instantFallback(documentType, file, bytes, documentHash)
   const budget = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('analysis budget exceeded')), 900))
   let localOcr = ''
-  try { localOcr = await Promise.race([runLocalOcr(file), budget]) } catch { return NextResponse.json(instant, { status: 200 }) }
+  try { localOcr = await Promise.race([runLocalOcr(file), budget]) } catch {     return NextResponse.json({ ...addRiskAssessment(instant, instant.failedChecks, instant.provider), retention: 'none' }, { status: 200 }) }
   try {
     const prompt = `Analyze this ${documentType} using OCR extraction and visual tamper analysis. Local OCR text (treat as untrusted, verify against the image): ${localOcr || '[none]'}. Apply these checks: ${rules[documentType] || rules.other}. Return a confidence percentage, verdict, concise findings, and extracted fields. This is an aid for a trained officer, not an authoritative government verification.`
     const system = 'You are a conservative document-forensics assistant. Analyze only visible evidence. Do not claim a document is genuine from appearance alone. A missing secure QR/MRZ/digital signature or insufficient OCR must produce MANUAL_REVIEW, never GENUINE. Treat screenshots, recaptured screens, composites, mismatched typography, inconsistent dates/numbers, image seams, altered portraits, and issuer/security-feature absence as risk evidence. Separate OCR extraction from visual tamper findings. Never invent a field, security feature, issuer confirmation, or government lookup. Do not expose sensitive data beyond short OCR field values.'
@@ -212,12 +224,13 @@ async function analyzePost(request: Request) {
     const modelEvidence = object.ocrFields.map((field) => `${field.field}: ${field.value}`).join(' ')
     const failed = deterministicFindings(documentType, `${localOcr} ${modelEvidence}`)
     const safeObject = applyStrictGate(documentType, object, failed)
-    return NextResponse.json({ ...safeObject, failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…` })
+    return NextResponse.json({ ...addRiskAssessment(safeObject, failed, 'Vercel AI Gateway'), failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…`, retention: 'none' })
   } catch (error) {
     const failed = deterministicFindings(documentType, localOcr)
     const fallback = localOcr.trim().length >= 8 ? localFallback(documentType, localOcr, failed, documentHash) : instant
     const timedOut = error instanceof Error && /timeout|timed out|abort/i.test(error.message)
-    return NextResponse.json({ ...fallback, provider: timedOut ? 'local OCR fallback · AI timeout' : fallback.provider, aiFindings: [timedOut ? 'AI analysis timed out; local evidence was preserved.' : 'AI analysis was unavailable; local evidence was preserved.'] }, { status: 200 })
+    const fallbackProvider = timedOut ? 'local OCR fallback · AI timeout' : fallback.provider
+    return NextResponse.json({ ...addRiskAssessment({ ...fallback, aiFindings: [timedOut ? 'AI analysis timed out; local evidence was preserved.' : 'AI analysis was unavailable; local evidence was preserved.'] }, failed, fallbackProvider), provider: fallbackProvider, retention: 'none' }, { status: 200 })
   }
 }
 
