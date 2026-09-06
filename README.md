@@ -1,33 +1,75 @@
-# sentinel-id-officer-console
+# SENTINEL-ID Officer Console
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [v0](https://v0.app).
+SENTINEL-ID is a secure, explainable identity-document screening console for authorized officers. It is designed for rapid passport and Aadhaar review in low-connectivity or air-gapped operational environments.
 
-## Built with v0
+## Problems this application can solve
 
-This repository is linked to a [v0](https://v0.app) project. You can continue developing by visiting the link below -- start new chats to make changes, and v0 will push commits directly to this repo. Every merge to `main` will automatically deploy.
+- **Slow manual document screening** — centralizes upload, screening, verdict, and evidence review in one officer workspace.
+- **Identity-document fraud** — detects suspicious document signals such as inconsistent fields, tampering indicators, invalid MRZ/VIZ relationships, and altered visual regions.
+- **Opaque AI decisions** — presents a confidence score, verdict, evidence trail, and signal-by-signal explanation instead of an unexplained pass/fail result.
+- **Counterfeit and altered passports** — supports passport image/PDF intake and creates a structured screening record for document-forensics workflows.
+- **Aadhaar verification bottlenecks** — provides a scalable place to add Aadhaar-specific OCR, QR, layout, and authenticity checks without changing the officer workflow.
+- **Inconsistent officer decisions** — standardizes screening states such as cleared, review, and high-risk with repeatable evidence categories.
+- **Disconnected or unreliable networks** — supports an offline-first operational model where local screening can continue and later synchronize with a central system.
+- **Sensitive document exposure** — uses authenticated officer access, secure session handling, upload validation, size limits, MIME allowlisting, file-signature checks, and security headers as a foundation for protected document processing.
+- **Weak auditability** — provides an extensible foundation for case history, officer actions, review notes, exports, and immutable audit events.
+- **Slow escalation of high-risk cases** — creates a future-ready queue for watchlists, case assignment, analyst review, and escalation workflows.
+- **Fragmented screening tools** — brings intake, analysis, case review, analytics, and system status into one command-center experience.
+- **Lack of operational insight** — leaves room for aggregate dashboards covering throughput, false-positive rates, latency, model drift, and review outcomes.
+- **Difficult deployment in controlled environments** — is structured for local inference, controlled storage, role-based access, and later synchronization with a central API.
+- **Limited integration readiness** — is prepared for OCR, MRZ parsing, face matching, document databases, queues, object storage, and model services as independent modules.
 
-[Continue working on v0 →](https://v0.app/chat/projects/prj_4WfqplxqrDgQUtjmczYv1wbYWZQ4)
+## Current capabilities
 
-## Getting Started
+- Officer sign-in and account creation with email/password and Google OAuth.
+- Protected dashboard backed by Better Auth and Neon Postgres.
+- Passport/Aadhaar image and PDF upload workflow.
+- Client-side file type, file signature, filename, and size validation.
+- Explainable demo confidence scoring and verdict presentation.
+- Responsive officer navigation with quick access to screening, queue, history, analytics, and settings surfaces.
+- Dark/light appearance modes with persistent preference.
+- Security headers, origin checks, request-size protection, authentication rate limiting, and secure preview cookie configuration.
+- Scalable seams for server-side inference, persistent document jobs, object storage, review queues, and audit logging.
 
-First, run the development server:
+## Architecture direction
+
+- **Frontend:** Next.js App Router, React, TypeScript, responsive CSS, Lucide icons.
+- **Authentication:** Better Auth with email/password and Google OAuth.
+- **Database:** Neon Postgres with a shared `pg` connection and Drizzle-compatible application structure.
+- **Security:** Server-protected routes, scoped user data, secure cookies, request guards, upload allowlists, magic-byte validation, and defense-in-depth response headers.
+- **Future processing:** Replace the demo scoring adapter with authenticated server-side OCR, document forensics, MRZ/VIZ validation, face matching, local inference, or a queue-backed analysis service.
+
+## Run locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Required server variables include:
 
-## Learn More
+- `DATABASE_URL`
+- `BETTER_AUTH_SECRET`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
 
-To learn more, take a look at the following resources:
+Never commit credentials, document samples containing personal data, or generated secrets. Configure OAuth callback URLs and deployment secrets in the environment where the application runs.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-- [v0 Documentation](https://v0.app/docs) - learn about v0 and how to use it.
+## Security and scope
+
+SENTINEL-ID is a screening aid, not a legal identity determination. Production deployments should add server-side file scanning, encrypted object storage, strict retention and deletion policies, role-based authorization, rate limiting at the edge, structured audit logging, model governance, privacy review, and independent security testing before processing real identity documents.
+
+This repository is linked to a [v0](https://v0.app) project. Continue development from the [v0 project](https://v0.app/chat/projects/prj_4WfqplxqrDgQUtjmczYv1wbYWZQ4).
+
+## References
+
+- [Next.js Documentation](https://nextjs.org/docs)
+- [Better Auth Documentation](https://www.better-auth.com/docs)
+- [Neon Documentation](https://neon.tech/docs)
+- [v0 Documentation](https://v0.app/docs)
+
+## License
+
+Add the project license before public distribution. Until a license is added, the repository remains “all rights reserved” by default.
