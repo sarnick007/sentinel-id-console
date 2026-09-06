@@ -55,8 +55,7 @@ export function AuthForm() {
           ? 'Sign-in failed. Use the registered officer email and password, or create a new account below.'
           : 'Unable to create the officer account. Check the details and try again.')
       } else {
-        router.push('/')
-        router.refresh()
+        window.location.assign('/')
       }
     } catch {
       setError('The authentication service is temporarily unavailable. Please try again.')
@@ -85,7 +84,7 @@ export function AuthForm() {
         <form onSubmit={submit}>
           {mode === 'sign-up' && <label>Full name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>}
           <label>Work email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-          <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required /></label>
+          <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={12} required /></label>
           {error && <p className="form-error">{error}</p>}
           <button className="primary-button" disabled={pending}>{pending ? 'Authenticating…' : mode === 'sign-in' ? 'Enter console' : 'Create account'}</button>
         </form>

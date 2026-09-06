@@ -34,7 +34,7 @@ export function OfficerDashboard({ user }: { user: User }) {
   const [file, setFile] = useState<File | null>(null)
   const [documentType, setDocumentType] = useState<DocumentType>('passport')
   const [analyzing, setAnalyzing] = useState(false)
-  const [result, setResult] = useState<{ score: number; verdict: string; profile: DocumentProfile } | null>(null)
+  const [result, setResult] = useState<{ confidence: number; verdict: 'GENUINE' | 'LIKELY_FAKE' | 'MANUAL_REVIEW'; summary: string; ocrFields: { field: string; value: string; status: string }[]; aiFindings: string[]; failedChecks: string[]; rulesApplied: string[]; provider: string; model: string; profile: DocumentProfile } | null>(null)
   const [activeView, setActiveView] = useState<View>('new')
   const [mobileNav, setMobileNav] = useState(false)
   const [notice, setNotice] = useState('')
@@ -70,18 +70,31 @@ export function OfficerDashboard({ user }: { user: User }) {
     setFile(new File([nextFile], safeName, { type: nextFile.type })); setResult(null); setNotice('')
   }
 
-  function analyze() {
+  async function analyze() {
     if (!file) { setNotice(`Choose a ${documentProfiles[documentType].label} file first.`); return }
     setAnalyzing(true); setResult(null); setNotice('')
-    window.setTimeout(() => {
-      const score = (file.size + documentType.length) % 2 === 0 ? 96 : 87
-      setResult({ score, verdict: score > 92 ? 'CLEAR WITH CONFIDENCE' : 'REFER TO SECONDARY INSPECTION', profile: documentProfiles[documentType] })
-      setAnalyzing(false)
-    }, 900)
+    try {
+      const body = new FormData()
+      body.append('file', file)
+      body.append('documentType', documentType)
+      const response = await fetch('/api/analyze', { method: 'POST', body })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Analysis failed')
+      setResult({ ...data, profile: documentProfiles[documentType] })
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Analysis unavailable. Refer this document to secondary inspection.')
+    } finally { setAnalyzing(false) }
   }
 
   async function signOut() { await authClient.signOut(); window.location.href = '/sign-in' }
   function navigate(view: View) { setActiveView(view); setMobileNav(false); setNotice(''); if (view === 'new') { setFile(null); setResult(null); } }
+
+  function renderWorkspace() {
+    if (activeView === 'queue') return <><div className="workspace-toolbar"><div><span className="eyebrow">07 ACTIVE CASES</span><h2>Case queue.</h2><p>Prioritize referrals and assign a second inspection without leaving the officer console.</p></div><button className="secondary-button" onClick={() => setNotice('Queue refreshed just now.')}>Refresh queue</button></div><div className="data-table">{['Passport · IN-2048', 'Driving licence · IN-2046', 'Voter ID card · IN-2041'].map((item, index) => <div className="data-row" key={item}><span><b>{item}</b><small>Submitted {index + 1}h ago · local node</small></span><strong className={index === 1 ? 'warn' : ''}>{index === 1 ? 'REVIEW' : 'QUEUED'}</strong><button className="row-action" onClick={() => setNotice(`${item} opened for review.`)}>Open</button></div>)}</div></>
+    if (activeView === 'history') return <><div className="workspace-toolbar"><div><span className="eyebrow">AUDIT TRAIL</span><h2>Audit history.</h2><p>Every screening event is recorded with a local timestamp and evidence status.</p></div><button className="secondary-button" onClick={() => setNotice('Audit export prepared for download.')}>Export report</button></div><div className="timeline">{['Screening completed · passport · 96/100', 'Case assigned · driving licence · secondary review', 'Officer session started · node 04'].map((event, index) => <div key={event}><span className="timeline-dot" /><p><b>{event}</b><small>{index + 1} minute{index ? 's' : ''} ago · integrity chain verified</small></p></div>)}</div></>
+    if (activeView === 'analytics') return <><div className="workspace-toolbar"><div><span className="eyebrow">OPERATIONS / 30 DAYS</span><h2>Operational analytics.</h2><p>Use these indicators to spot workload shifts and review model performance.</p></div><button className="secondary-button" onClick={() => setNotice('Analytics view set to 30 days.')}>30 days</button></div><div className="analytics-grid"><div><span>ANALYSES</span><strong>2,418</strong><small>+12.4% vs prior period</small></div><div><span>AVG CONFIDENCE</span><strong>93.8</strong><small>Target ≥ 90</small></div><div><span>REFERRAL RATE</span><strong>8.2%</strong><small>Within operating range</small></div></div><div className="chart-bars" aria-label="Screening volume chart">{[42,58,48,76,64,88,72].map((height, index) => <span style={{ height: `${height}%` }} key={index} />)}</div></>
+    return <><div className="workspace-toolbar"><div><span className="eyebrow">NODE 04 / CONFIGURATION</span><h2>System settings.</h2><p>Manage operator preferences and local processing safeguards.</p></div><button className="secondary-button" onClick={toggleTheme}>{theme === 'dark' ? 'Use light mode' : 'Use dark mode'}</button></div><div className="settings-list"><label><span><b>Local processing</b><small>Documents remain on the air-gapped node.</small></span><input type="checkbox" checked readOnly /></label><label><span><b>Require secondary review</b><small>Flag scores below 90 for another officer.</small></span><input type="checkbox" defaultChecked /></label><label><span><b>Compact navigation</b><small>Keep the quick access rail visible.</small></span><input type="checkbox" /></label></div></>
+  }
 
   return <main className="console-shell">
     <aside className={`console-sidebar ${mobileNav ? 'mobile-open' : ''}`}>
@@ -97,10 +110,10 @@ export function OfficerDashboard({ user }: { user: User }) {
         {activeView === 'new' && <>
           <section className="hero-row"><div><p className="eyebrow">DOCUMENT INTELLIGENCE</p><h2>Verify the document.<br /><em>Trust the evidence.</em></h2><p className="hero-copy">Upload a government document image, screenshot, or PDF. SENTINEL-ID returns an explainable confidence score without sending sensitive documents outside the node.</p></div><div className="hero-mark">S<span>01</span></div></section>
           <section className="upload-card"><div className="upload-heading"><div><span className="eyebrow">01 / CAPTURE INPUT</span><h3>Start a document screening</h3></div><span className="format-note">JPG · PNG · WEBP · PDF <b>≤ 10 MB</b></span></div><div className="document-selector"><label htmlFor="document-type">DOCUMENT TYPE<select id="document-type" value={documentType} onChange={(event) => { setDocumentType(event.target.value as DocumentType); setFile(null); setResult(null); setNotice('') }}>{Object.entries(documentProfiles).map(([value, profile]) => <option key={value} value={value}>{profile.label}</option>)}</select></label><p>{documentProfiles[documentType].helper}</p></div><label className="dropzone"><input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => selectFile(event.target.files?.[0] || null)} /><UploadCloud size={28} /><strong>{file ? file.name : 'Drop a file here or browse'}</strong><span>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB · ready for analysis` : `${documentProfiles[documentType].label} · image, screenshot, or PDF`}</span></label><div className="upload-actions"><span className="privacy-note"><LockKeyhole size={14} /> Processed locally · never retained by default</span><button className="primary-button" onClick={analyze} disabled={!file || analyzing}>{analyzing ? 'Analyzing document…' : 'Run analysis'} <ArrowRight size={16} /></button></div>{notice && <p className="form-error">{notice}</p>}</section>
-          {result && <section className={`result-card ${result.score > 92 ? 'clear' : 'refer'}`}><div className="result-score"><strong>{result.score}</strong><span>/ 100</span></div><div><span className="eyebrow">02 / CONFIDENCE RESULT · {result.profile.shortLabel}</span><h3>{result.verdict}</h3><p>Demo adapter score for {result.profile.label}. Production inference can plug into the same result contract without changing the officer workflow.</p><div className="signal-list">{result.profile.signals.map((signal) => <span key={signal}><BadgeCheck size={13} /> {signal}</span>)}</div></div><BadgeCheck size={28} /></section>}
+          {result && <section aria-live="polite" className={`result-card ${result.verdict === 'GENUINE' ? 'clear' : 'refer'}`}><div className="result-score"><strong>{result.confidence}</strong><span>% confidence</span></div><div><span className="eyebrow">02 / OCR + AI RESULT · {result.profile.shortLabel}</span><h3>{result.verdict === 'GENUINE' ? 'LIKELY GENUINE' : result.verdict === 'LIKELY_FAKE' ? 'LIKELY FAKE' : 'MANUAL REVIEW REQUIRED'}</h3><p>{result.summary}</p><div className="result-evidence"><b>OCR extraction</b>{result.ocrFields.length ? result.ocrFields.map((field) => <span key={field.field}><strong>{field.field}</strong> {field.value} <i>{field.status}</i></span>) : <span>No reliable OCR fields extracted.</span>}<b>AI findings</b>{result.aiFindings.map((finding) => <span key={finding}>{finding}</span>)}{result.failedChecks.map((check) => <span className="evidence-fail" key={check}>{check}</span>)}</div><small className="provenance">{result.provider} · {result.model} · deterministic checks applied</small></div><BadgeCheck size={28} /></section>}
           <div className="stat-row"><div><span>ANALYSES TODAY</span><strong>184</strong><small>↑ 12.4% vs yesterday</small></div><div><span>MEDIAN LATENCY</span><strong>2.8s</strong><small>Target ≤ 4 seconds</small></div><div><span>MODEL BUNDLE</span><strong>v0.8.4</strong><small>SHA 9a7f…d21c</small></div><div><span>NODE HEALTH</span><strong>99.98%</strong><small>All modules operational</small></div></div>
         </>}
-        {activeView !== 'new' && <section className="workspace-card"><span className="eyebrow">{activeView.toUpperCase()} / OFFICER WORKSPACE</span><h2>{activeView === 'queue' ? 'Case queue.' : activeView === 'history' ? 'Audit history.' : activeView === 'analytics' ? 'Operational analytics.' : 'System settings.'}</h2><p>This workspace is ready for the next SENTINEL-ID module. The navigation is wired so queue management, audit exports, analytics, and node controls can scale without changing the officer workflow.</p><div className="workspace-list"><div><FileCheck2 size={18} /><span>Offline-first processing node</span><b>ONLINE</b></div><div><Activity size={18} /><span>Inference pipeline</span><b>READY</b></div><div><LockKeyhole size={18} /><span>Evidence retention</span><b>30 DAYS</b></div></div><button className="primary-button" onClick={() => navigate('new')}>Start new screening <ArrowRight size={16} /></button><button className="secondary-button" onClick={() => setNotice('Workspace controls are ready for the next module release.')}>View module status</button></section>}
+        {activeView !== 'new' && <section className="workspace-card">{renderWorkspace()}<button className="primary-button" onClick={() => navigate('new')}>Start new screening <ArrowRight size={16} /></button>{notice && <p className="form-success">{notice}</p>}</section>}
       </div>
       <footer className="console-footer"><span><span className="pulse" /> SYSTEM NOMINAL</span><span>RETENTION POLICY <b>30 DAYS</b></span><span>SENTINEL-ID / SIH 2026</span></footer>
     </section>
