@@ -118,7 +118,7 @@ export function OfficerDashboard({ user }: { user: User }) {
       const response = await fetch('/api/drive', { cache: 'no-store' })
       const data = await response.json()
       if (response.status === 401 && data.authorizationUrl) { window.open(data.authorizationUrl, '_blank', 'noopener,noreferrer'); setNotice('Authorize Google Drive in the new tab, then return and click the button again.'); return }
-      if (!response.ok) throw new Error(data.error || 'Google Drive is unavailable.')
+      if (!response.ok) throw new Error(data.error || `Google Drive is unavailable (HTTP ${response.status}).`)
       setDriveFiles(data.files || []); setNotice(data.files?.length ? 'Choose a document from Google Drive.' : 'No supported image or PDF files were found in Google Drive.')
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Google Drive is unavailable.') } finally { setDriveLoading(false) }
   }
