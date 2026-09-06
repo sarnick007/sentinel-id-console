@@ -96,24 +96,33 @@ function instantFallback(documentType: string, file: File, bytes: Buffer, docume
 
 function localFallback(documentType: string, ocrText: string, failed: string[], documentHash: string) {
   const normalized = ocrText.toUpperCase().replace(/[|]/g, 'I')
-  const hasIssuer = documentType === 'aadhaar' && /(AADHAAR|UIDAI|आधार|UNIQUE IDENTIFICATION|GOVERNMENT OF INDIA)/i.test(normalized)
-  const aadhaarNumber = /(?:\d[ -]?){12}/.test(normalized)
-  const hasDate = /\b(?:DOB|YOB|DATE OF BIRTH|YEAR OF BIRTH|\d{2}[/-]\d{2}[/-]\d{4})\b/i.test(normalized)
-  const hasGender = /\b(MALE|FEMALE|TRANSGENDER|पुरुष|महिला)\b/i.test(normalized)
-  const hasQrSignal = /QR|VID|VIRTUAL ID|MERA AADHAAR/i.test(normalized)
-  const fields = [
-    hasIssuer && { field: 'Issuer', value: 'Aadhaar/UIDAI evidence detected', status: 'present' as const },
-    aadhaarNumber && { field: 'Identity number', value: '12-digit Aadhaar-like number detected', status: 'present' as const },
-    hasDate && { field: 'Date evidence', value: 'DOB/YOB/date pattern detected', status: 'present' as const },
-    hasGender && { field: 'Gender', value: 'Gender label detected', status: 'present' as const },
-    hasQrSignal && { field: 'Security signal', value: 'QR/VID-related text detected', status: 'present' as const },
-    ocrText && { field: 'OCR evidence', value: `${ocrText.length} characters extracted`, status: 'present' as const },
-  ].filter(Boolean) as Array<{ field: string; value: string; status: 'present' }>
-  const evidencePoints = (hasIssuer ? 22 : 0) + (aadhaarNumber ? 20 : 0) + (hasDate ? 8 : 0) + (hasGender ? 6 : 0) + (hasQrSignal ? 10 : 0) + (ocrText.length > 80 ? 8 : 0)
-  const confidence = Math.min(74, evidencePoints)
   const emptyEvidence = ocrText.length === 0
-  const evidenceMessage = emptyEvidence ? 'OCR could not read this image. The score reflects missing machine-readable evidence, not a finding that the Aadhaar card is fake.' : 'OCR evidence was extracted locally; secure issuer or QR verification is still required.'
-  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: hasIssuer ? 'Local OCR found multiple Aadhaar evidence signals. Authenticity still requires secure QR/issuer verification.' : evidenceMessage, ocrFields: fields, aiFindings: ['Local OCR fallback used because AI analysis was unavailable.'], failedChecks: failed.length ? failed : ['AI visual/tamper analysis unavailable; authenticity not established.'], rulesApplied: rules[documentType] || rules.other, provider: 'local OCR fallback', model: 'tesseract.js', documentHash: `${documentHash.slice(0, 12)}…` }
+  const fields: Array<{ field: string; value: string; status: 'present' }> = []
+  let evidencePoints = 0
+  let summary: string
+
+  if (documentType === 'aadhaar') {
+    const hasIssuer = /(AADHAAR|UIDAI|आधार|UNIQUE IDENTIFICATION|GOVERNMENT OF INDIA)/i.test(normalized)
+    const aadhaarNumber = /(?:\d[ -]?){12}/.test(normalized)
+    const hasDate = /\b(?:DOB|YOB|DATE OF BIRTH|YEAR OF BIRTH|\d{2}[/-]\d{2}[/-]\d{4})\b/i.test(normalized)
+    const hasGender = /\b(MALE|FEMALE|TRANSGENDER|पुरुष|महिला)\b/i.test(normalized)
+    const hasQrSignal = /QR|VID|VIRTUAL ID|MERA AADHAAR/i.test(normalized)
+    if (hasIssuer) fields.push({ field: 'Issuer', value: 'Aadhaar/UIDAI evidence detected', status: 'present' })
+    if (aadhaarNumber) fields.push({ field: 'Identity number', value: '12-digit Aadhaar-like number detected', status: 'present' })
+    if (hasDate) fields.push({ field: 'Date evidence', value: 'DOB/YOB/date pattern detected', status: 'present' })
+    if (hasGender) fields.push({ field: 'Gender', value: 'Gender label detected', status: 'present' })
+    if (hasQrSignal) fields.push({ field: 'Security signal', value: 'QR/VID-related text detected', status: 'present' })
+    evidencePoints = (hasIssuer ? 22 : 0) + (aadhaarNumber ? 20 : 0) + (hasDate ? 8 : 0) + (hasGender ? 6 : 0) + (hasQrSignal ? 10 : 0)
+    summary = hasIssuer ? 'Local OCR found multiple Aadhaar evidence signals. Authenticity still requires secure QR/issuer verification.' : emptyEvidence ? 'OCR could not read this image; authoritative Aadhaar verification is still required.' : 'OCR evidence was extracted locally; secure issuer or QR verification is still required.'
+  } else {
+    fields.push({ field: 'Document type', value: `${documentType} selected`, status: 'present' })
+    if (ocrText) fields.push({ field: 'OCR evidence', value: `${ocrText.length} characters extracted`, status: 'present' })
+    evidencePoints = Math.min(40, (ocrText ? 12 : 0) + (ocrText.length > 80 ? 8 : 0))
+    summary = emptyEvidence ? 'OCR could not read this image. No authenticity conclusion was made.' : 'Generic OCR evidence was extracted locally; document-specific authenticity verification is still required.'
+  }
+
+  if (ocrText && documentType === 'aadhaar') fields.push({ field: 'OCR evidence', value: `${ocrText.length} characters extracted`, status: 'present' })
+  return { verdict: 'MANUAL_REVIEW' as const, confidence: Math.min(74, evidencePoints), summary, ocrFields: fields, aiFindings: ['Local OCR fallback used because AI analysis was unavailable.'], failedChecks: failed.length ? failed : ['AI visual/tamper analysis unavailable; authenticity not established.'], rulesApplied: rules[documentType] || rules.other, provider: 'local OCR fallback', model: 'tesseract.js', documentHash: `${documentHash.slice(0, 12)}…` }
 }
 
 function applyStrictGate(documentType: string, object: z.infer<typeof verdictSchema>, failed: string[]) {
