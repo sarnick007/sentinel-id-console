@@ -18,14 +18,23 @@ const trustedOrigins = [
     process.env.V0_SANDBOX_URL,
     process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
     process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined,
-  ].filter(Boolean),
+  ].filter((origin): origin is string => Boolean(origin)),
 ]
 
 export const auth = betterAuth({
   database: new Pool({ connectionString: process.env.DATABASE_URL }),
   baseURL,
   trustedOrigins,
-  emailAndPassword: { enabled: true },
+  emailAndPassword: {
+    enabled: true,
+    minPasswordLength: 12,
+    maxPasswordLength: 128,
+  },
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 10,
+  },
   socialProviders: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID!,

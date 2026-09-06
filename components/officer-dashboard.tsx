@@ -24,10 +24,20 @@ export function OfficerDashboard({ user }: { user: User }) {
   const [mobileNav, setMobileNav] = useState(false)
   const [notice, setNotice] = useState('')
 
-  function selectFile(nextFile: File | null) {
+  async function selectFile(nextFile: File | null) {
     if (!nextFile) return
-    if (nextFile.size > 10 * 1024 * 1024) { setNotice('File exceeds the 10 MB checkpoint limit.'); return }
-    setFile(nextFile); setResult(null); setNotice('')
+    if (nextFile.size === 0 || nextFile.size > 10 * 1024 * 1024) { setNotice('File must be between 1 byte and 10 MB.'); return }
+    const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+    if (!allowedTypes.has(nextFile.type)) { setNotice('Only JPEG, PNG, WEBP, or PDF files are accepted.'); return }
+    const header = new Uint8Array(await nextFile.slice(0, 12).arrayBuffer())
+    const isJpeg = header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff
+    const isPng = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47
+    const isWebp = header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46 && header[8] === 0x57 && header[9] === 0x45 && header[10] === 0x42 && header[11] === 0x50
+    const signature = new TextDecoder().decode(header.slice(0, 5))
+    const isPdf = signature === '%PDF-'
+    if (!isJpeg && !isPng && !isWebp && !isPdf) { setNotice('The file signature does not match a supported document.'); return }
+    const safeName = nextFile.name.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 160) || 'document'
+    setFile(new File([nextFile], safeName, { type: nextFile.type })); setResult(null); setNotice('')
   }
 
   function analyze() {
