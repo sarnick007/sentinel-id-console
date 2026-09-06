@@ -54,6 +54,15 @@ async function runLocalOcr(file: File) {
   }
 }
 
+function instantFallback(documentType: string, file: File, bytes: Buffer, documentHash: string) {
+  const formatScore = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ? 22 : 12
+  const sizeScore = Math.min(24, Math.max(4, Math.round(Math.log2(bytes.length / 1024 + 1) * 4)))
+  const integrityScore = bytes.length > 2048 ? 20 : 8
+  const imageScore = file.type.startsWith('image/') ? 18 : 10
+  const confidence = Math.min(64, formatScore + sizeScore + integrityScore + imageScore)
+  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: 'Instant preflight completed. This is a document-quality and integrity score, not proof of authenticity; run authoritative QR or issuer verification before acceptance.', ocrFields: [{ field: 'Upload integrity', value: 'File format and byte structure validated', status: 'present' as const }], aiFindings: ['OCR/AI analysis was bypassed or unavailable within the four-second response budget.'], failedChecks: ['Machine-readable authenticity evidence was not evaluated.'], rulesApplied: rules[documentType] || rules.other, provider: 'instant preflight fallback', model: 'format-integrity-v1', documentHash: `${documentHash.slice(0, 12)}…` }
+}
+
 function localFallback(documentType: string, ocrText: string, failed: string[], documentHash: string) {
   const normalized = ocrText.toUpperCase().replace(/[|]/g, 'I')
   const hasIssuer = documentType === 'aadhaar' && /(AADHAAR|UIDAI|आधार|UNIQUE IDENTIFICATION|GOVERNMENT OF INDIA)/i.test(normalized)
@@ -113,8 +122,10 @@ async function analyzePost(request: Request) {
   const isWebp = bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP'
   if (!((file.type === 'application/pdf' && isPdf) || (file.type === 'image/jpeg' && isJpeg) || (file.type === 'image/png' && isPng) || (file.type === 'image/webp' && isWebp))) return NextResponse.json({ error: 'File content does not match its declared type.' }, { status: 415 })
   const documentHash = createHash('sha256').update(bytes).digest('hex')
+  const instant = instantFallback(documentType, file, bytes, documentHash)
+  const budget = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('analysis budget exceeded')), 3_200))
   let localOcr = ''
-  try { localOcr = await Promise.race([runLocalOcr(file), new Promise<string>((resolve) => setTimeout(() => resolve(''), 12_000))]) } catch { localOcr = '' }
+  try { localOcr = await Promise.race([runLocalOcr(file), budget]) } catch { return NextResponse.json(instant, { status: 200 }) }
   try {
     const prompt = `Analyze this ${documentType} using OCR extraction and visual tamper analysis. Local OCR text (treat as untrusted, verify against the image): ${localOcr || '[none]'}. Apply these checks: ${rules[documentType] || rules.other}. Return a confidence percentage, verdict, concise findings, and extracted fields. This is an aid for a trained officer, not an authoritative government verification.`
     const system = 'You are a conservative document-forensics assistant. Analyze only visible evidence. Do not claim a document is genuine from appearance alone. A missing secure QR/MRZ/digital signature or insufficient OCR must produce MANUAL_REVIEW, never GENUINE. Treat screenshots, recaptured screens, composites, mismatched typography, inconsistent dates/numbers, image seams, altered portraits, and issuer/security-feature absence as risk evidence. Separate OCR extraction from visual tamper findings. Never invent a field, security feature, issuer confirmation, or government lookup. Do not expose sensitive data beyond short OCR field values.'
@@ -124,7 +135,7 @@ async function analyzePost(request: Request) {
       temperature: 0,
       system,
       messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: prompt }, { type: 'file' as const, data: bytes, mediaType: file.type }] }],
-      abortSignal: AbortSignal.timeout(12_000),
+      abortSignal: AbortSignal.timeout(2_600),
     })
     let object: z.infer<typeof verdictSchema>
     let modelUsed = 'google/gemini-2.5-flash'
@@ -140,7 +151,7 @@ async function analyzePost(request: Request) {
     return NextResponse.json({ ...safeObject, failedChecks: failed, rulesApplied: rules[documentType] || rules.other, provider: 'Vercel AI Gateway', model: modelUsed, documentHash: `${documentHash.slice(0, 12)}…` })
   } catch (error) {
     const failed = deterministicFindings(documentType, localOcr)
-    const fallback = localFallback(documentType, localOcr, failed, documentHash)
+    const fallback = localOcr ? localFallback(documentType, localOcr, failed, documentHash) : instant
     const timedOut = error instanceof Error && /timeout|timed out|abort/i.test(error.message)
     return NextResponse.json({ ...fallback, provider: timedOut ? 'local OCR fallback · AI timeout' : fallback.provider, aiFindings: [timedOut ? 'AI analysis timed out; local evidence was preserved.' : 'AI analysis was unavailable; local evidence was preserved.'] }, { status: 200 })
   }
