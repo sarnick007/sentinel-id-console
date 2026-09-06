@@ -36,7 +36,7 @@ function deterministicFindings(documentType: string, text: string) {
   if (/SCREENSHOT|SAMPLE|SPECIMEN|DEMO|EDITED|PHOTOSHOP/.test(normalized)) failed.push('Document contains sample, screenshot, or editing markers.')
   if (documentType === 'pan-card' && !/[A-Z]{5}[0-9]{4}[A-Z]/.test(normalized)) failed.push('PAN structure was not detected in OCR text.')
   if (documentType === 'passport' && !/[A-Z0-9<]{20,}/.test(normalized)) failed.push('Passport MRZ-like text was not detected in OCR text.')
-  if (documentType === 'aadhaar' && !/(AADHAAR|UIDAI|आधार)/.test(normalized)) failed.push('Aadhaar/UIDAI issuer evidence was not detected in OCR text.')
+  if (documentType === 'aadhaar' && !/(AADHAAR|UIDAI|आधार|UNIQUE IDENTIFICATION)/.test(normalized)) failed.push('Aadhaar/UIDAI issuer evidence was not detected in OCR text.')
   if (documentType === 'driving-license' && !/(DRIVING|LICENCE|LICENSE|DL)/.test(normalized)) failed.push('Driving-licence issuer evidence was not detected in OCR text.')
   if (documentType === 'voter-id' && !/(ELECTION|EPIC|VOTER|निर्वाचन)/.test(normalized)) failed.push('Voter/EPIC issuer evidence was not detected in OCR text.')
   return failed
@@ -47,7 +47,7 @@ async function runLocalOcr(file: File) {
   const worker = await createWorker('eng')
   try {
     const result = await worker.recognize(Buffer.from(await file.arrayBuffer()))
-    return result.data.text.replace(/\\s+/g, ' ').trim().slice(0, 4000)
+    return result.data.text.replace(/\s+/g, ' ').trim().slice(0, 4000)
   } finally {
     await worker.terminate()
   }
@@ -78,7 +78,7 @@ function applyStrictGate(documentType: string, object: z.infer<typeof verdictSch
   return { ...object, confidence: calibratedConfidence }
 }
 
-export async function POST(request: Request) {
+async function analyzePost(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const form = await request.formData()
@@ -89,6 +89,7 @@ export async function POST(request: Request) {
   if (!allowed.has(file.type)) return NextResponse.json({ error: 'Unsupported file type' }, { status: 415 })
 
   const bytes = Buffer.from(await file.arrayBuffer())
+  if (bytes.length === 0) return NextResponse.json({ error: 'The uploaded file is empty.' }, { status: 400 })
   const documentHash = createHash('sha256').update(bytes).digest('hex')
   let localOcr = ''
   try { localOcr = await runLocalOcr(file) } catch { localOcr = '' }
@@ -117,5 +118,13 @@ export async function POST(request: Request) {
   } catch {
     const failed = deterministicFindings(documentType, localOcr)
     return NextResponse.json(localFallback(documentType, localOcr, failed, documentHash))
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    return await analyzePost(request)
+  } catch {
+    return NextResponse.json({ error: 'Analysis service failed safely. Retry the upload or refer the document for manual inspection.', code: 'ANALYSIS_SERVICE_ERROR' }, { status: 503 })
   }
 }

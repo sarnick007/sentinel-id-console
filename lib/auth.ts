@@ -26,9 +26,7 @@ export const auth = betterAuth({
   baseURL,
   trustedOrigins,
   emailAndPassword: {
-    enabled: true,
-    minPasswordLength: 12,
-    maxPasswordLength: 128,
+    enabled: false,
   },
   rateLimit: {
     enabled: true,
