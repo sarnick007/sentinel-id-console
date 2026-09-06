@@ -34,13 +34,24 @@ export async function GET() {
     }
 
     const params = new URLSearchParams({
-      q: "trashed = false and (mimeType contains 'image/' or mimeType = 'application/pdf')",
+      q: "trashed = false and (mimeType = 'application/pdf' or mimeType contains 'image/')",
       pageSize: '30',
       orderBy: 'modifiedTime desc',
-      fields: 'files(id,name,mimeType,size,modifiedTime,webContentLink)',
+      spaces: 'drive',
+      corpora: 'user',
+      fields: 'files(id,name,mimeType,size,modifiedTime)',
     })
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
-    if (!response.ok) return NextResponse.json({ error: 'Google Drive could not be read.' }, { status: 502 })
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, cache: 'no-store' })
+    if (!response.ok) {
+      const detail = await response.text()
+      console.error('[v0] Google Drive files.list failed:', response.status, detail)
+      let message = 'Google Drive could not be read.'
+      try {
+        const payload = JSON.parse(detail) as { error?: { message?: string } }
+        if (payload.error?.message) message = `Google Drive: ${payload.error.message}`
+      } catch { /* Keep a safe generic message when Google returns non-JSON. */ }
+      return NextResponse.json({ error: message }, { status: 502 })
+    }
     return NextResponse.json(await response.json())
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error && error.message === 'Unauthorized' ? 'Unauthorized' : 'Google Drive is unavailable.' }, { status: error instanceof Error && error.message === 'Unauthorized' ? 401 : 502 })
