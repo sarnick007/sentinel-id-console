@@ -17,12 +17,23 @@ export function AuthForm() {
     event.preventDefault()
     setPending(true)
     setError('')
-    const result = mode === 'sign-in'
-      ? await authClient.signIn.email({ email, password })
-      : await authClient.signUp.email({ email, password, name })
-    if (result.error) setError('Unable to authenticate. Check your details and try again.')
-    else { router.push('/'); router.refresh() }
-    setPending(false)
+    try {
+      const result = mode === 'sign-in'
+        ? await authClient.signIn.email({ email, password })
+        : await authClient.signUp.email({ email, password, name })
+      if (result.error) {
+        setError(mode === 'sign-in'
+          ? 'Sign-in failed. Use the registered officer email and password, or create a new account below.'
+          : 'Unable to create the officer account. Check the details and try again.')
+      } else {
+        router.push('/')
+        router.refresh()
+      }
+    } catch {
+      setError('The authentication service is temporarily unavailable. Please try again.')
+    } finally {
+      setPending(false)
+    }
   }
 
   return (
@@ -38,6 +49,7 @@ export function AuthForm() {
         <p className="eyebrow">OFFICER ACCESS</p>
         <h2>{mode === 'sign-in' ? 'Welcome back.' : 'Create your console.'}</h2>
         <p className="muted">{mode === 'sign-in' ? 'Sign in to review identity dossiers.' : 'Provision a secure officer account.'}</p>
+        {mode === 'sign-in' && <p className="auth-hint">Demo account: officer@sentinel.id</p>}
         <form onSubmit={submit}>
           {mode === 'sign-up' && <label>Full name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>}
           <label>Work email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
