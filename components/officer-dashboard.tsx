@@ -80,7 +80,7 @@ export function OfficerDashboard({ user }: { user: User }) {
       const response = await fetch('/api/analyze', { method: 'POST', body })
       const raw = await response.text()
       let data: Record<string, unknown>
-      try { data = JSON.parse(raw) } catch { throw new Error(`Analysis service returned an invalid response (${response.status}). Retry the upload.`) }
+      try { data = JSON.parse(raw) } catch { throw new Error(`Analysis service returned an invalid response (${response.status}). The server may have timed out; local evidence could not be returned.`) }
       if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : 'Analysis failed safely. Retry the upload.')
       if (typeof data.confidence !== 'number' || data.confidence < 0 || data.confidence > 100) throw new Error('Analysis returned an invalid confidence score. Refer this document for manual inspection.')
       setResult({ ...data, profile: documentProfiles[documentType] } as typeof result & { profile: DocumentProfile })
