@@ -54,13 +54,44 @@ async function runLocalOcr(file: File) {
   }
 }
 
+function readImageDimensions(type: string, bytes: Buffer) {
+  if (type === 'image/png' && bytes.length >= 24) return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) }
+  if (type === 'image/webp' && bytes.length >= 30 && bytes.subarray(12, 16).toString('ascii') === 'VP8X') return { width: 1 + bytes.readUIntLE(24, 3), height: 1 + bytes.readUIntLE(27, 3) }
+  if (type !== 'image/jpeg') return null
+  let offset = 2
+  while (offset + 9 < bytes.length) {
+    if (bytes[offset] !== 0xff) { offset += 1; continue }
+    const marker = bytes[offset + 1]
+    const length = bytes.readUInt16BE(offset + 2)
+    if (length < 2 || offset + length + 2 > bytes.length) break
+    if (marker >= 0xc0 && marker <= 0xc3) return { height: bytes.readUInt16BE(offset + 5), width: bytes.readUInt16BE(offset + 7) }
+    offset += length + 2
+  }
+  return null
+}
+
 function instantFallback(documentType: string, file: File, bytes: Buffer, documentHash: string) {
-  const formatScore = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ? 22 : 12
-  const sizeScore = Math.min(24, Math.max(4, Math.round(Math.log2(bytes.length / 1024 + 1) * 4)))
-  const integrityScore = bytes.length > 2048 ? 20 : 8
-  const imageScore = file.type.startsWith('image/') ? 18 : 10
-  const confidence = Math.max(32, Math.min(64, formatScore + sizeScore + integrityScore + imageScore))
-  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: 'Instant preflight completed. This quality score reflects a valid readable upload, not proof of authenticity; run authoritative QR or issuer verification before acceptance.', ocrFields: [{ field: 'Upload integrity', value: 'File format and byte structure validated', status: 'present' as const }], aiFindings: ['OCR/AI analysis was unavailable; a deterministic upload-quality score was returned.'], failedChecks: ['Machine-readable authenticity evidence was not evaluated.'], rulesApplied: rules[documentType] || rules.other, provider: 'instant preflight fallback', model: 'format-integrity-v1', documentHash: `${documentHash.slice(0, 12)}…` }
+  const dimensions = readImageDimensions(file.type, bytes)
+  const pixelCount = dimensions ? dimensions.width * dimensions.height : 0
+  const hasUsableDimensions = pixelCount >= 900_000 && pixelCount <= 80_000_000
+  const tooSmall = dimensions ? dimensions.width < 700 || dimensions.height < 450 : false
+  const suspiciousAspect = dimensions ? dimensions.width / dimensions.height > 4.5 || dimensions.height / dimensions.width > 4.5 : false
+  const integrityScore = bytes.length > 20_000 ? 18 : bytes.length > 2_048 ? 10 : 3
+  const formatScore = file.type === 'application/pdf' ? 14 : 18
+  const dimensionScore = dimensions ? (hasUsableDimensions ? 25 : 10) : 4
+  const qualityScore = !tooSmall && !suspiciousAspect ? 12 : 3
+  const riskPenalty = suspiciousAspect ? 16 : tooSmall ? 10 : 0
+  const confidence = Math.max(18, Math.min(82, formatScore + integrityScore + dimensionScore + qualityScore - riskPenalty))
+  const findings = [
+    'OCR/AI analysis was unavailable within the response budget; this is a deterministic quality/evidence score.',
+    dimensions ? `Image dimensions detected: ${dimensions.width} × ${dimensions.height}.` : 'Image dimensions could not be verified from the file header.',
+  ]
+  const failedChecks = [
+    'Machine-readable authenticity evidence was not evaluated.',
+    ...(tooSmall ? ['Image resolution is low for reliable forensic inspection.'] : []),
+    ...(suspiciousAspect ? ['Unusual aspect ratio requires manual review.'] : []),
+  ]
+  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: 'Instant preflight completed. This variable quality score is not an authenticity verdict; use authoritative QR, MRZ, issuer, or secondary verification before acceptance.', ocrFields: [{ field: 'Upload integrity', value: 'File format and byte structure validated', status: 'present' as const }, ...(dimensions ? [{ field: 'Image dimensions', value: `${dimensions.width} × ${dimensions.height}`, status: 'present' as const }] : [])], aiFindings: findings, failedChecks, rulesApplied: rules[documentType] || rules.other, provider: 'instant preflight fallback', model: 'format-integrity-v2', documentHash: `${documentHash.slice(0, 12)}…` }
 }
 
 function localFallback(documentType: string, ocrText: string, failed: string[], documentHash: string) {
