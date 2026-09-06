@@ -123,7 +123,7 @@ async function analyzePost(request: Request) {
   if (!((file.type === 'application/pdf' && isPdf) || (file.type === 'image/jpeg' && isJpeg) || (file.type === 'image/png' && isPng) || (file.type === 'image/webp' && isWebp))) return NextResponse.json({ error: 'File content does not match its declared type.' }, { status: 415 })
   const documentHash = createHash('sha256').update(bytes).digest('hex')
   const instant = instantFallback(documentType, file, bytes, documentHash)
-  const budget = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('analysis budget exceeded')), 3_200))
+  const budget = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('analysis budget exceeded')), 900))
   let localOcr = ''
   try { localOcr = await Promise.race([runLocalOcr(file), budget]) } catch { return NextResponse.json(instant, { status: 200 }) }
   try {
@@ -135,7 +135,7 @@ async function analyzePost(request: Request) {
       temperature: 0,
       system,
       messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: prompt }, { type: 'file' as const, data: bytes, mediaType: file.type }] }],
-      abortSignal: AbortSignal.timeout(2_600),
+      abortSignal: AbortSignal.timeout(1_800),
     })
     let object: z.infer<typeof verdictSchema>
     let modelUsed = 'google/gemini-2.5-flash'
