@@ -19,13 +19,11 @@ const isDevelopment = process.env.NODE_ENV === 'development'
 
 const trustedOriginCandidates = [
   baseURL,
-  ...(isDevelopment ? [
-    'http://localhost:3000',
-    toOrigin(process.env.V0_RUNTIME_URL),
-    toOrigin(process.env.V0_DEV_APP_URL),
-    toOrigin(process.env.V0_BUILD_URL),
-    toOrigin(process.env.V0_SANDBOX_URL),
-  ] : []),
+  'http://localhost:3000',
+  toOrigin(process.env.V0_RUNTIME_URL),
+  toOrigin(process.env.V0_DEV_APP_URL),
+  toOrigin(process.env.V0_BUILD_URL),
+  toOrigin(process.env.V0_SANDBOX_URL),
   toOrigin(process.env.VERCEL_URL),
   toOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL),
 ]

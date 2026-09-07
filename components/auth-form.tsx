@@ -30,7 +30,7 @@ export function AuthForm() {
     setPending(true)
     setError('')
     try {
-      const result = await authClient.signIn.social({ provider: 'google', callbackURL: '/' })
+      const result = await authClient.signIn.social({ provider: 'google', callbackURL: `${window.location.origin}/` })
       if (result.error) {
         console.error('[auth] Google OAuth start failed', result.error)
         setError(result.error.code === 'INVALID_ORIGIN' ? 'This preview URL is not trusted by the authentication server.' : 'Google sign-in could not start. Check the Google OAuth redirect URL for this deployment.')
