@@ -144,9 +144,9 @@ function instantFallback(documentType: string, file: File, bytes: Buffer, docume
   const dimensionScore = dimensions ? (hasUsableDimensions ? 25 : 10) : isPdf ? 18 : 4
   const qualityScore = !tooSmall && !suspiciousAspect ? 12 : 3
   const riskPenalty = suspiciousAspect ? 16 : tooSmall ? 10 : 0
-  const confidence = 0
+  const confidence = Math.max(18, Math.min(58, formatScore + dimensionScore + qualityScore - riskPenalty))
   const findings = [
-    'OCR/AI analysis was unavailable within the response budget; this is a deterministic quality/evidence score.',
+    'OCR/AI analysis was unavailable within the response budget; this is a deterministic upload-quality score, not an authenticity verdict.',
     dimensions ? `Image dimensions detected: ${dimensions.width} × ${dimensions.height}.` : isPdf ? 'PDF container structure detected; page dimensions require rendering.' : 'Image dimensions could not be verified from the file header.',
   ]
   const failedChecks = [
@@ -156,7 +156,7 @@ function instantFallback(documentType: string, file: File, bytes: Buffer, docume
     ...(tooSmall ? ['Image resolution is low for reliable forensic inspection.'] : []),
     ...(suspiciousAspect ? ['Unusual aspect ratio requires manual review.'] : []),
   ]
-  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: 'Instant preflight completed without document-specific evidence. No authenticity confidence score was assigned; use authoritative QR, MRZ, issuer, or secondary verification before acceptance.', ocrFields: [{ field: 'Upload integrity', value: 'File format and byte structure validated', status: 'present' as const }, ...(dimensions ? [{ field: 'Image dimensions', value: `${dimensions.width} × ${dimensions.height}`, status: 'present' as const }] : [])], aiFindings: findings, failedChecks, rulesApplied: rules[documentType] || rules.other, provider: 'instant preflight fallback', model: 'format-integrity-v2', documentHash: `${documentHash.slice(0, 12)}…` }
+  return { verdict: 'MANUAL_REVIEW' as const, confidence, summary: 'Instant preflight completed without document-specific evidence. The displayed score reflects file quality only, not authenticity; use authoritative QR, MRZ, issuer, or secondary verification before acceptance.', ocrFields: [{ field: 'Upload integrity', value: 'File format and byte structure validated', status: 'present' as const }, ...(dimensions ? [{ field: 'Image dimensions', value: `${dimensions.width} × ${dimensions.height}`, status: 'present' as const }] : [])], aiFindings: findings, failedChecks, rulesApplied: rules[documentType] || rules.other, provider: 'instant preflight fallback', model: 'format-integrity-v2', documentHash: `${documentHash.slice(0, 12)}…` }
 }
 
 function localFallback(documentType: string, ocrText: string, failed: string[], documentHash: string) {
