@@ -27,13 +27,25 @@ const trustedOriginCandidates = [
   toOrigin(process.env.VERCEL_URL),
   toOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL),
 ]
-const trustedOrigins = Array.from(new Set(trustedOriginCandidates.filter((origin): origin is string => Boolean(origin))))
+const configuredTrustedOrigins = Array.from(new Set(trustedOriginCandidates.filter((origin): origin is string => Boolean(origin))))
+
+const isVercelPreviewHost = (hostname: string) =>
+  hostname === 'localhost' ||
+  hostname.endsWith('.vercel.app') ||
+  hostname.endsWith('.v0.dev') ||
+  hostname.endsWith('.v0.app') ||
+  hostname.endsWith('.v0.build')
 
 export const auth = betterAuth({
   database: new Pool({ connectionString: process.env.DATABASE_URL }),
-  secret: process.env.BETTER_AUTH_SECRET,
   baseURL,
-  trustedOrigins,
+  trustedOrigins: async (request) => {
+    const requestOrigin = request ? new URL(request.url).origin : undefined
+    const requestHost = request ? new URL(request.url).hostname : ''
+    return requestOrigin && isVercelPreviewHost(requestHost)
+      ? [...configuredTrustedOrigins, requestOrigin]
+      : configuredTrustedOrigins
+  },
   emailAndPassword: {
     enabled: false,
   },
