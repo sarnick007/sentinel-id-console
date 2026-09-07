@@ -1,6 +1,6 @@
 # SENTINEL-ID Officer Console
 
-SENTINEL-ID is a secure, explainable identity-document screening console for authorized officers. It is designed for rapid passport and Aadhaar review in low-connectivity or air-gapped operational environments.
+SENTINEL-ID is a secure, identity-document screening console for authorized officers. It is designed for rapid passport,Aadhaar and other document review in low-connectivity or air-gapped operational environments.
 
 ## Problems this application can solve
 
