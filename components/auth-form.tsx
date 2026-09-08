@@ -50,8 +50,8 @@ export function AuthForm() {
         <div className="brand-mark">S</div>
         <p className="eyebrow">SENTINEL-ID / SIH 2026</p>
         <h1>Trust, made visible.</h1>
-        <p className="auth-copy">An online identity screening console for the officers who keep borders moving.</p>
-        <div className="auth-proof"><span className="status-dot" /> Online analysis services ready</div>
+        <p className="auth-copy">An online identity screening console for officers protecting India&apos;s checkpoints, campuses, and communities.</p>
+        <div className="auth-proof"><span className="status-dot" /> Secure online analysis services ready</div>
       </section>
       <section className="auth-card">
         <button className="auth-theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />} {theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
