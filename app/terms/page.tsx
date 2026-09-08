@@ -1,0 +1,5 @@
+import Link from 'next/link'
+
+export default function TermsPage() {
+  return <main className="policy-page"><Link href="/sign-in" className="policy-back">← Back to sign in</Link><p className="eyebrow">SENTINEL-ID / TERMS</p><h1>Terms of use</h1><p className="policy-lead">Sentinel-ID is an officer-facing screening and evidence-management tool.</p><section><h2>Use responsibly</h2><p>Use the console only for authorized identity-screening work. Follow your organization&apos;s procedures, applicable Indian law, and data-protection requirements.</p></section><section><h2>Decision support</h2><p>Scores, OCR, QR, MRZ, and AI findings are aids for trained officers. A result must not be treated as a standalone authenticity, eligibility, or enforcement decision.</p></section><section><h2>Account security</h2><p>Keep credentials private, use an official work email where possible, and report suspected unauthorized access to your administrator.</p></section><section><h2>Service limitations</h2><p>Online analysis can be unavailable or incomplete. When evidence is insufficient, follow secondary verification and manual-review procedures.</p></section></main>
+}

@@ -100,6 +100,7 @@ export function AuthForm() {
         <button className="text-button" onClick={() => { setError(''); setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in') }}>
           {mode === 'sign-in' ? 'Need an account? Create one' : 'Already registered? Sign in'}
         </button>
+        <p className="auth-legal">By continuing, you agree to our <a href="/terms">Terms</a> and acknowledge our <a href="/privacy">Privacy Policy</a>.</p>
       </section>
     </main>
   )

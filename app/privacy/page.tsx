@@ -1,0 +1,5 @@
+import Link from 'next/link'
+
+export default function PrivacyPage() {
+  return <main className="policy-page"><Link href="/sign-in" className="policy-back">← Back to sign in</Link><p className="eyebrow">SENTINEL-ID / PRIVACY</p><h1>Privacy policy</h1><p className="policy-lead">Sentinel-ID processes identity documents to support officer-led screening and review.</p><section><h2>What we process</h2><p>Uploaded files, extracted document fields, verification outcomes, case status, and audit events are processed for the signed-in officer workspace.</p></section><section><h2>How we use information</h2><p>We use this information to run document checks, preserve explainable evidence, protect the service, and maintain an accountable review trail. Results are decision support, not proof of identity.</p></section><section><h2>Retention and access</h2><p>Access is scoped to authenticated officer accounts. Do not upload documents unless your organization has a lawful basis and operational need to review them.</p></section><section><h2>Contact</h2><p>For deletion, access, or security questions, contact your Sentinel-ID administrator.</p></section></main>
+}
