@@ -4,7 +4,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'SENTINEL-ID | Officer Console',
-  description: 'Offline, explainable identity and document screening for SIH 2026.',
+  description: 'Online, explainable identity and document screening for Indian officers and checkpoint teams.',
   generator: 'v0.app',
   icons: {
     icon: [

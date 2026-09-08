@@ -47,7 +47,8 @@ export const auth = betterAuth({
       : configuredTrustedOrigins
   },
   emailAndPassword: {
-    enabled: false,
+    enabled: true,
+    requireEmailVerification: false,
   },
   rateLimit: {
     enabled: true,
